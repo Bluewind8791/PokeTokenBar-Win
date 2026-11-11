@@ -1,0 +1,543 @@
+Hand-ported members and English doc comments for swift_l_to_cs.py.
+`TSWIFT(n)` expands to the n-th (0-based) `t(...)` call of that member's Swift source, converted to C#.
+
+MARK section titles (Korean → English):
+MARK: 탭 => Tabs
+MARK: 헤더 (오늘/주/월) => Header (today / week / month)
+MARK: 한도 섹션 => Limits section
+MARK: 푸터 => Footer
+MARK: 설정 => Settings
+MARK: 대표 포켓몬 => Representative Pokémon
+MARK: 난이도 => Difficulty
+MARK: 플로팅 펫 => Floating pet
+MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로) => claude.ai session key (limits path without a Keychain prompt)
+MARK: 세션 키 만료 안내 — OAuth 만료와 처방이 다르므로 문구·행동을 따로 둔다 => Session key expiry notice — the fix differs from OAuth expiry, so copy and actions are separate
+MARK: Claude Keychain 항상 허용 초기화 도움말 (상시 안내) => Claude Keychain "Always Allow" reset help (always shown)
+MARK: 세이브 이전 (설정 → 백업 & 이전) => Save transfer (Settings → Backup & transfer)
+MARK: 스냅샷 백업 (설정 → 자동 백업) => Snapshot backups (Settings → Automatic backups)
+MARK: 문제점 알리기 (설정 → 메일 리포트) => Report a problem (Settings → mail report)
+MARK: 컴패니언 => Companion
+MARK: 도감 요약 헤더 => Dex summary header
+MARK: Pokémon 상세 => Pokémon detail
+MARK: companion 이벤트 시스템 알림 => Companion event system notifications
+MARK: Claude 한도 토큰 갱신 오류 (친절 안내) => Claude limit token refresh errors (friendly guidance)
+MARK: Claude 세션 만료(401) 안내 => Claude session expired (401) notice
+MARK: Antigravity 세션 만료(401) 안내 — Claude 쪽과 동일 문안 구조로 통일 => Antigravity session expired (401) notice — same copy structure as Claude
+MARK: Cursor 공식 한도(월간 포함 allowance) => Cursor official limits (monthly included allowance)
+MARK: 업데이트 알림 => Update notices
+MARK: 알림 => Notifications
+MARK: 가방 / 아이템 => Bag / items
+MARK: 상점 (재화 = 사용한 토큰) => Shop (currency = tokens used)
+MARK: 사탕 획득 알림 ("왜 받는지" = 토큰 한도를 다 채운 수고에 대한 보상) => Candy grant notifications (the "why": a reward for filling a token limit)
+
+// DOC collection
+    /// <summary>
+    /// Top-level tab name. It switches between the dex and the catch log inside, so it must cover both
+    /// (a Korean "dex" here would collide with the segment name and drift from en/ja "Collection").
+    /// </summary>
+// END collection
+
+// DOC dailyTrend
+    /// <summary>
+    /// Title of the daily bar row. Says "this month" so it is not read as a rolling 30 days.
+    /// de is shortened to "Täglich" because the full phrase wraps the caption; the line above already says "Dieser Monat".
+    /// </summary>
+// END dailyTrend
+
+// DOC peakDay
+    /// <summary>Peak label of the trend: bar heights are relative, so one absolute value must be shown.</summary>
+// END peakDay
+
+// DOC paceHint
+    /// <summary>
+    /// Pace tick tooltip. Not called a "recommended" amount: it is the line where the window would run out
+    /// before reset, not a norm to stay under.
+    /// </summary>
+// END paceHint
+
+// DOC paceTier
+    /// <summary>Pace tier names. Like <see cref="PaceHint"/>, they describe burn speed and avoid normative words.</summary>
+// END paceTier
+
+// DOC paceDelta
+    /// <summary>
+    /// Difference from pace in points, phrased as amount *used*: positional words ("ahead/above") read backwards
+    /// in remaining mode (#286). Null at zero. European languages skip "pace" because the tier name already says it.
+    /// </summary>
+// END paceDelta
+
+// DOC providerStatusLabel
+    /// <summary>Provider status-page incident indicator → localized label (display only).</summary>
+// END providerStatusLabel
+
+// DOC claudeLimitEntry
+    /// <summary>Name of a newer Claude oauth/usage <c>limits[]</c> entry, from its kind and model scope.</summary>
+// END claudeLimitEntry
+
+// DOC codexWindow
+    /// <summary>Codex limit window name (from windowDurationMins). Shared by notifications and the popover.</summary>
+// END codexWindow
+
+// DOC antigravityGeminiGroup
+    /// <summary>Antigravity limit group and window names.</summary>
+// END antigravityGeminiGroup
+
+// DOC antigravityGroupTitle
+    /// <summary>
+    /// API <c>displayName</c> ("Gemini Models", "Claude and GPT models", …) → app-language label.
+    /// Popover, limit alerts, candy alerts and pet bubbles must share this mapping or one screen shows two languages (#322).
+    /// Same axis as <c>AntigravityRateLimitStatus.geminiGroup</c> / <c>thirdPartyGroup</c> (gemini / claude|gpt|3p);
+    /// unknown names keep the API string.
+    /// </summary>
+// END antigravityGroupTitle
+
+// DOC percentRemaining
+    /// <summary>Remaining-mode value of a popover limit row: the percentage with a self-explaining suffix.</summary>
+// END percentRemaining
+
+// DOC difficultyValue
+    /// <summary>Current multiplier next to the slider: 10%–200%, 1.0 = 100%.</summary>
+// END difficultyValue
+
+// DOC floatingPetHideLabel
+    /// <summary>Footer eye-icon tooltip while the pet is shown; the "show" side reuses <see cref="FloatingPetEnableLabel"/>.</summary>
+// END floatingPetHideLabel
+
+// DOC floatingPetBubbleAlertsLabel
+    /// <summary>Only limit alerts use bubbles today; the label stays valid if more alert kinds are added.</summary>
+// END floatingPetBubbleAlertsLabel
+
+// DOC sessionKeyStorageNote
+    /// <summary>Do not hide plaintext storage: users must know what they hand over and how to revoke it.</summary>
+// END sessionKeyStorageNote
+
+// DOC sessionKeyExpiredNoticeHint
+    /// <summary>
+    /// Does not suggest re-reading the Keychain: with a dead session key that fixes nothing and brings back
+    /// the very prompt the session key was meant to avoid.
+    /// </summary>
+// END sessionKeyExpiredNoticeHint
+
+// DOC importConfirmBody
+    /// <summary>
+    /// States in numbers what will be lost — more useful than a generic "Are you sure?".
+    /// Export time and source device are shown because with equal dex counts a three-week-old save reads
+    /// identically, leaving no clue that an old file is being restored.
+    /// </summary>
+// END importConfirmBody
+
+// DOC importErrorMessage
+    /// <summary>
+    /// Import failure → user message. Kept here, not in the view, so the mapping is testable: when it misses,
+    /// the raw "The operation couldn't be completed…" text leaks through.
+    /// </summary>
+// END importErrorMessage
+
+// DOC importErrorBackupFailed
+    /// <summary>Import is aborted when no backup could be written — never proceed without a way back.</summary>
+// END importErrorBackupFailed
+
+// DOC intervalLabel
+    /// <summary>Refresh interval label (seconds → display). 0 = manual.</summary>
+// END intervalLabel
+
+// DOC eggHatchDelayed
+    /// <summary>Shown while the hatch threshold is reached but the external data request keeps failing.</summary>
+// END eggHatchDelayed
+
+// DOC catchLogTitle
+    /// <summary>Catch log = per-individual records (duplicates of one line are normal). Dex = per-species summary.</summary>
+// END catchLogTitle
+
+// DOC dexSpeciesTotal
+    /// <summary>The dex total counts species, not individuals — a different unit from the log's <see cref="DexTotal"/>.</summary>
+// END dexSpeciesTotal
+
+// DOC dexReleased
+    /// <summary>Catch-log badge separating released individuals from graduates. The species stays in the dex.</summary>
+// END dexReleased
+
+// DOC dexOpenEntryHint
+    /// <summary>Sprite click → that species' dex detail. Shared by tooltip and accessibility label.</summary>
+// END dexOpenEntryHint
+
+// DOC dexShinyLabel
+    /// <summary>Spoken noun for the ✨ in a dex cell — screen readers do not read the emoji consistently.</summary>
+// END dexShinyLabel
+
+// DOC statusEgg
+    // Status line
+// END statusEgg
+
+// DOC notifShinyHatchBody
+    /// <summary>Takes the denominator actually used for the roll — it is not 64 when the charm is owned.</summary>
+// END notifShinyHatchBody
+
+// DOC eggFirstRunHint
+    /// <summary>
+    /// First-run hint (no tokens accrued yet), so nothing happening is not confusing.
+    /// <c>amount</c> is the formatted hatch threshold after the growth difficulty — not a fixed 5M.
+    /// </summary>
+// END eggFirstRunHint
+
+// DOC notifDittoRevealTitle
+    // Ditto disguise reveal: a Ditto cannot evolve, so it reveals itself at its first evolution.
+// END notifDittoRevealTitle
+
+// DOC notifShinyDittoRevealBody
+    /// <summary>No odds shown: shininess was rolled at hatch and whether the charm was owned then is not saved.</summary>
+// END notifShinyDittoRevealBody
+
+// DOC itemName
+    /// <summary>Item display name — official localized names, like species.</summary>
+// END itemName
+
+// DOC mintEffectHint
+    /// <summary>Effect hint of the bag use control for mint (where candy shows "+XP").</summary>
+// END mintEffectHint
+
+// DOC eggName
+    // Egg (reroll): tier = guaranteed minimum rarity (null = basic egg without a guarantee).
+    // Names are spelled out per language rather than composed as rarityLabel + " egg": that works in
+    // Korean and English but breaks Japanese particles (レアのタマゴ vs レアなタマゴ).
+// END eggName
+
+// DOC eggShopLockedHint
+    /// <summary>Why the shop egg card is disabled while in egg state — one line under the buy button (EggCard).</summary>
+// END eggShopLockedHint
+
+// DOC eggReleaseNote
+    /// <summary>
+    /// What stays after releasing — the line right under <see cref="EggDescription"/> (EggCard).
+    /// Its purpose is reassurance, not a warning: <c>buyEgg</c> keeps the species in the dex via <c>releasedDexEntry</c>.
+    /// "Same odds" is literal: <c>chooseBase</c> halves the weight of collected bases, but <c>collectedFinals</c> is only
+    /// filled on graduation, so a released species keeps 100% hatch weight.
+    /// </summary>
+// END eggReleaseNote
+
+// DOC eggGuaranteeHint
+    /// <summary>Guarantee badge shown while incubating — which egg is being incubated, in one line.</summary>
+// END eggGuaranteeHint
+
+// PORT paceTier
+    public string PaceTier(Core.PaceTier tier) => tier switch
+    {
+        Core.PaceTier.WayUnder => TSWIFT(0),
+        Core.PaceTier.Under => TSWIFT(1),
+        Core.PaceTier.OnPace => TSWIFT(2),
+        Core.PaceTier.SlightlyOver => TSWIFT(3),
+        Core.PaceTier.Over => TSWIFT(4),
+        Core.PaceTier.WayOver => TSWIFT(5),
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, null),
+    };
+// END paceTier
+
+// PORT paceDelta
+    public string? PaceDelta(int points)
+    {
+        if (points > 0)
+        {
+            return TSWIFT(0);
+        }
+        if (points < 0)
+        {
+            var n = -points;
+            return TSWIFT(1);
+        }
+        return null;
+    }
+// END paceDelta
+
+// PORT providerStatusLabel
+    public string ProviderStatusLabel(ProviderStatusIndicator indicator) => indicator switch
+    {
+        ProviderStatusIndicator.Operational => TSWIFT(0),
+        ProviderStatusIndicator.Minor => TSWIFT(1),
+        ProviderStatusIndicator.Major => TSWIFT(2),
+        ProviderStatusIndicator.Critical => TSWIFT(3),
+        ProviderStatusIndicator.Maintenance => TSWIFT(4),
+        _ => TSWIFT(5),
+    };
+// END providerStatusLabel
+
+// PORT claudeLimitEntry
+    public string ClaudeLimitEntry(string? kind, string? model)
+    {
+        switch (kind)
+        {
+            case "session": return FiveHourSession;
+            case "weekly_all": return Weekly;
+            case "weekly_scoped":
+                // Without a model name this would read like the legacy "Weekly" row, so mark it as scoped.
+                if (model == null) return TSWIFT(0);
+                return TSWIFT(1);
+            default:
+                var name = model == null ? "" : " " + model;
+                return (kind ?? "limit").Replace("_", " ") + name;
+        }
+    }
+// END claudeLimitEntry
+
+// PORT codexWindow
+    public string CodexWindow(int? mins)
+    {
+        switch (mins)
+        {
+            case 300: return FiveHourSession;
+            case 10_080: return Weekly;
+            case int m when m >= 60 && m % 60 == 0:
+                var h = m / 60;
+                return TSWIFT(0);
+            case int m: return TSWIFT(1);
+            default: return TSWIFT(2);
+        }
+    }
+// END codexWindow
+
+// PORT antigravityGroupTitle
+    public string AntigravityGroupTitle(string displayName)
+    {
+        bool Has(string s) => displayName.Contains(s, StringComparison.CurrentCultureIgnoreCase);
+        if (Has("gemini")) return AntigravityGeminiGroup;
+        if (Has("claude") || Has("gpt") || Has("3p")) return AntigravityThirdPartyGroup;
+        return displayName;
+    }
+// END antigravityGroupTitle
+
+// PORT antigravityWindow
+    public string AntigravityWindow(string? window, string bucketId)
+    {
+        if (window == "5h" || bucketId.Contains("5h", StringComparison.Ordinal)) return FiveHourSession;
+        if (window == "weekly" || bucketId.Contains("weekly", StringComparison.Ordinal)) return Weekly;
+        return TSWIFT(0);
+    }
+// END antigravityWindow
+
+// PORT recapScopeName
+    public string RecapScopeName(RecapScope scope) => scope switch
+    {
+        RecapScope.Week => TSWIFT(0),
+        RecapScope.Month => TSWIFT(1),
+        RecapScope.Year => TSWIFT(2),
+        _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, null),
+    };
+// END recapScopeName
+
+// PORT recapCompareSoFar
+    public string RecapCompareSoFar(RecapScope scope) => scope switch
+    {
+        RecapScope.Week => TSWIFT(0),
+        RecapScope.Month => TSWIFT(1),
+        RecapScope.Year => TSWIFT(2),
+        _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, null),
+    };
+// END recapCompareSoFar
+
+// PORT recapCurrentPeriod
+    public string RecapCurrentPeriod(RecapScope scope) => scope switch
+    {
+        RecapScope.Week => ThisWeek,
+        RecapScope.Month => ThisMonth,
+        RecapScope.Year => TSWIFT(0),
+        _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, null),
+    };
+// END recapCurrentPeriod
+
+// PORT menuLimitColorMode
+    public string MenuLimitColorMode(Core.MenuLimitColorMode mode) => mode switch
+    {
+        Core.MenuLimitColorMode.Gauge => TSWIFT(0),
+        Core.MenuLimitColorMode.Attention => TSWIFT(1),
+        Core.MenuLimitColorMode.Off => TSWIFT(2),
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
+    };
+// END menuLimitColorMode
+
+// PORT difficultyValue
+    public string DifficultyValue(double value)
+    {
+        var percent = value * 100;
+        if (percent >= 10) return TokenFormatter.Printf(percent, 0) + "%";
+        if (percent >= 1) return TokenFormatter.Printf(percent, 1) + "%";
+        return TokenFormatter.Printf(percent, 2) + "%";
+    }
+// END difficultyValue
+
+// PORT snapshotHistoryState
+    public string SnapshotHistoryState(bool expanded) => expanded
+        ? TSWIFT(0)
+        : TSWIFT(1);
+// END snapshotHistoryState
+
+// PORT importErrorMessage
+    /// <remarks>
+    /// Takes the Swift <c>SaveTransferError</c> case name ("notASaveFile", "newerSchema", "fileTooLarge",
+    /// "backupFailed") until that type is ported; any other failure goes through <see cref="UserFacingError"/>.
+    /// </remarks>
+    public string ImportErrorMessage(string saveTransferErrorCase) => saveTransferErrorCase switch
+    {
+        "notASaveFile" => ImportErrorNotSaveFile,
+        "newerSchema" => ImportErrorNewerSchema,
+        "fileTooLarge" => ImportErrorTooLarge,
+        "backupFailed" => ImportErrorBackupFailed,
+        _ => throw new ArgumentOutOfRangeException(nameof(saveTransferErrorCase), saveTransferErrorCase, null),
+    };
+// END importErrorMessage
+
+// PORT intervalLabel
+    public string IntervalLabel(double seconds)
+    {
+        if (seconds == 0) return TSWIFT(0);
+        var m = (int)(seconds / 60);
+        return TSWIFT(1);
+    }
+// END intervalLabel
+
+// PORT label
+    public string Label(DexSortOption option) => option switch
+    {
+        DexSortOption.NumberAsc => SortDexNumberAsc,
+        DexSortOption.NumberDesc => SortDexNumberDesc,
+        DexSortOption.NameAsc => SortNameAsc,
+        DexSortOption.NameDesc => SortNameDesc,
+        DexSortOption.RarityDesc => SortRarity,
+        _ => throw new ArgumentOutOfRangeException(nameof(option), option, null),
+    };
+// END label
+
+// PORT label_1
+    public string Label(CatchLogSortOption option) => option switch
+    {
+        CatchLogSortOption.RecentFirst => SortDateDesc,
+        CatchLogSortOption.OldestFirst => SortDateAsc,
+        CatchLogSortOption.NumberAsc => SortDexNumberAsc,
+        CatchLogSortOption.NumberDesc => SortDexNumberDesc,
+        CatchLogSortOption.NameAsc => SortNameAsc,
+        CatchLogSortOption.NameDesc => SortNameDesc,
+        CatchLogSortOption.RarityDesc => SortRarity,
+        _ => throw new ArgumentOutOfRangeException(nameof(option), option, null),
+    };
+// END label_1
+
+// PORT genderLabel
+    public string GenderLabel(PokemonGender? gender) => gender switch
+    {
+        PokemonGender.Male => TSWIFT(0),
+        PokemonGender.Female => TSWIFT(1),
+        PokemonGender.Genderless => TSWIFT(2),
+        _ => "—",
+    };
+// END genderLabel
+
+// PORT statLabel
+    public string StatLabel(string stat) => stat switch
+    {
+        "hp" => "HP",
+        "attack" => TSWIFT(0),
+        "defense" => TSWIFT(1),
+        "special-attack" => TSWIFT(2),
+        "special-defense" => TSWIFT(3),
+        "speed" => TSWIFT(4),
+        _ => stat,
+    };
+// END statLabel
+
+// PORT moveMethod
+    public string MoveMethod(PokemonMoveLearnMethod detail) => detail.Method switch
+    {
+        "level-up" => detail.Level > 0 ? $"Lv. {detail.Level}" : TSWIFT(0),
+        "machine" => "TM",
+        "egg" => TSWIFT(1),
+        "light-ball-egg" => TSWIFT(2),
+        "form-change" => TSWIFT(3),
+        "tutor" => TSWIFT(4),
+        _ => detail.Method.Replace("-", " "),
+    };
+// END moveMethod
+
+// PORT rarityLabel
+    /// <remarks>Takes the Swift <c>Rarity</c> raw value ("common", "uncommon", "rare", "legendary").</remarks>
+    public string RarityLabel(string rarity) => rarity switch
+    {
+        "common" => RarityCommon,
+        "uncommon" => RarityUncommon,
+        "rare" => RarityRare,
+        "legendary" => RarityLegendary,
+        _ => throw new ArgumentOutOfRangeException(nameof(rarity), rarity, null),
+    };
+// END rarityLabel
+
+// PORT limitRefreshHTTPError
+    public string LimitRefreshHTTPError(int status)
+    {
+        if (status == 401 || status == 403)
+        {
+            return TSWIFT(0);
+        }
+        return TSWIFT(1);
+    }
+// END limitRefreshHTTPError
+
+// PORT itemName
+    /// <remarks>Takes the Swift <c>ItemKind</c> raw value ("rareCandy", "mint", "shinyCharm").</remarks>
+    public string ItemName(string kind) => kind switch
+    {
+        "rareCandy" => TSWIFT(0),
+        "mint" => TSWIFT(1),
+        "shinyCharm" => TSWIFT(2),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
+// END itemName
+
+// PORT itemDescription
+    /// <remarks>Takes the Swift <c>ItemKind</c> raw value ("rareCandy", "mint", "shinyCharm").</remarks>
+    public string ItemDescription(string kind)
+    {
+        switch (kind)
+        {
+            case "rareCandy":
+                var xp = TokenFormatter.Compact(RareCandyXp); // derived from the constant so the copy cannot drift
+                return TSWIFT(0);
+            case "mint":
+                return TSWIFT(1);
+            case "shinyCharm":
+                return TSWIFT(2);
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+    }
+// END itemDescription
+
+// PORT eggName
+    /// <remarks>Takes the Swift <c>Rarity</c> raw value, or null for the basic egg.</remarks>
+    public string EggName(string? tier) => tier switch
+    {
+        null or "common" => TSWIFT(0),
+        "uncommon" => TSWIFT(1),
+        "rare" => TSWIFT(2),
+        "legendary" => TSWIFT(3), // not sold (FreshEgg.shopTiers)
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, null),
+    };
+// END eggName
+
+// PORT eggDescription
+    /// <remarks>Takes the Swift <c>Rarity</c> raw value, or null for the basic egg.</remarks>
+    public string EggDescription(string? tier)
+    {
+        if (tier == null || tier == "common")
+        {
+            return TSWIFT(0);
+        }
+        var r = RarityLabel(tier);
+        return TSWIFT(1);
+    }
+// END eggDescription
+
+// PORT eggGuaranteeHint
+    /// <remarks>Takes the Swift <c>Rarity</c> raw value.</remarks>
+    public string EggGuaranteeHint(string tier)
+    {
+        var r = RarityLabel(tier);
+        return TSWIFT(0);
+    }
+// END eggGuaranteeHint

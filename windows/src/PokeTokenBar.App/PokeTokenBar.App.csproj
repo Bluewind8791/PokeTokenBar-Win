@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PokeTokenBar.Core\PokeTokenBar.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- NotifyIcon (tray icon) lives in WinForms; WPF has no tray API. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>PokeTokenBar</AssemblyName>
+    <RootNamespace>PokeTokenBar.App</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- Shares GitHub releases with the macOS app: keep in step with the release tag (vX.Y.Z). -->
+    <Version>2.5.6</Version>
+    <Product>PokeTokenBar</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms and WPF both define these; the app uses the WPF ones unless qualified. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+</Project>

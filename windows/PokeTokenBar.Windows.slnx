@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PokeTokenBar.App/PokeTokenBar.App.csproj" />
+    <Project Path="src/PokeTokenBar.Core/PokeTokenBar.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PokeTokenBar.Core.Tests/PokeTokenBar.Core.Tests.csproj" />
+  </Folder>
+</Solution>

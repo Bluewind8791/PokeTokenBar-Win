@@ -1,0 +1,10 @@
+<Window x:Class="PokeTokenBar.App.PopoverWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PokeTokenBar" Width="362" SizeToContent="Height"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" Topmost="True" ShowActivated="True">
+    <Border x:Name="Card" CornerRadius="10" Background="{DynamicResource Theme.Background}" BorderBrush="{DynamicResource Theme.Separator}" BorderThickness="1" Padding="14">
+        <ContentControl x:Name="Host" />
+    </Border>
+</Window>
