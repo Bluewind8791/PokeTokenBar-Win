@@ -50,13 +50,17 @@ public static class HomeView
         header.Children.Add(today.BaselineAligned());
 
         // Period totals and the saved-history button stay visible on quiet days too.
+        // The current streak sits next to the button, so the popover does not grow a line.
         var totals = new ViewThatFits(
-            Ui.HStack(14, PeriodTotals(s), Ui.Spacer(), RecapButton(s)),
-            WithTrailing(PeriodTotals(s), RecapButton(s)));
+            Ui.HStack(14, PeriodTotals(s), Ui.Spacer(), StreakBadge.Build(store.CurrentStreak, l), RecapButton(s)),
+            WithTrailing(PeriodTotals(s), Ui.HStack(14, StreakBadge.Build(store.CurrentStreak, l), RecapButton(s))));
         header.Children.Add(totals.Padding(0, 2, 0, 0));
 
-        if (MonthDailyTrend.Build(store.MonthDailyTotals, store.ShowsCost, LocalUsageReader.TodayKey(), l) is { } trend)
-            header.Children.Add(trend);
+        if (ActivityPanel.Build(store.ActivityVisualization, store.DailyTrendTotals, store.MonthDailyTotals,
+                store.DailyLedger, store.ShowsCost, store.DailyTrendWindow, w => store.DailyTrendWindow = w,
+                store.HasDailyTrendHistory, LocalUsageReader.TodayKey(), l,
+                () => store.ActivityVisualization = store.ActivityVisualization.Next()) is { } activity)
+            header.Children.Add(activity);
 
         // With two or more services connected, small tabs switch the details (totals above stay combined).
         if (store.Snapshots.Count > 1)
@@ -68,7 +72,7 @@ public static class HomeView
         return header;
     }
 
-    /// <summary>The VStack(alignment: .trailing) fallback: totals full-width leading, the recap button trailing.</summary>
+    /// <summary>The VStack(alignment: .trailing) fallback: totals full-width leading, the streak and recap button trailing.</summary>
     private static FrameworkElement WithTrailing(FrameworkElement totals, FrameworkElement recap)
     {
         recap.HorizontalAlignment = HorizontalAlignment.Right;

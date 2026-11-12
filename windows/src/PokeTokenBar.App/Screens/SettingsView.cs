@@ -168,6 +168,9 @@ public static partial class SettingsView
             Row(Label(l.LimitDisplayModeLabel), MacSegmented.Make(
                 [(LimitPace.LimitDisplayMode.Used, l.LimitDisplayUsed), (LimitPace.LimitDisplayMode.Remaining, l.LimitDisplayRemaining)],
                 store.LimitDisplayMode, m => store.LimitDisplayMode = m)),
+            Ui.Divider(),
+            Row(Label(l.DailyTrendPeriod), MacPopUp.Picker(Enum.GetValues<DailyTrendWindow>().Select(w => (w, l.Title(w))).ToList(),
+                store.DailyTrendWindow, w => store.DailyTrendWindow = w, l.DailyTrendPeriod)),
         };
         if (store.ClaudeAccounts.Count > 1)
         {
@@ -252,6 +255,8 @@ public static partial class SettingsView
             Ui.Divider(),
             ToggleRow(l.TodayCost, store.ShowCostInMenu, v => store.ShowCostInMenu = v),
             Ui.Divider(),
+            ToggleRow(l.PokemonGrowthPercent, store.ShowGrowthInMenu, v => store.ShowGrowthInMenu = v, hint: l.PokemonGrowthPercentHint),
+            Ui.Divider(),
             ToggleRow(l.LimitPercent, store.ShowLimitInMenu, v => store.ShowLimitInMenu = v),
         };
         if (store.ShowLimitInMenu)
@@ -261,9 +266,9 @@ public static partial class SettingsView
                 Enum.GetValues<MenuLimitColorMode>().Select(m => (m, l.MenuLimitColorMode(m))).ToList(),
                 store.MenuLimitColorMode, m => store.MenuLimitColorMode = m, l.MenuLimitColor)));
         }
-        var hint = Hint(l.AllOffHint);
+        var hint = Hint(l.WinAllOffHint);
         hint.Margin = new Thickness(4, 0, 0, 0);
-        return Ui.VStack(6, Section(l.MenuBarSectionTitle, rows.ToArray()), hint);
+        return Ui.VStack(6, Section(l.WinMenuBarSectionTitle, rows.ToArray()), hint);
     }
 
     private static FrameworkElement FloatingPetGroup(AppServices s, SettingsState st)
@@ -274,6 +279,10 @@ public static partial class SettingsView
         {
             Row(LabelWithHint(l.FloatingPetEnableLabel, l.FloatingPetHint),
                 new MacSwitch(store.FloatingPetEnabled, v => store.FloatingPetEnabled = v, l.FloatingPetEnableLabel)),
+            Ui.Divider(),
+            // Also reachable from both right-click menus. Applies to every surface, not only the pet.
+            Row(LabelWithHint(l.BackViewLabel, l.BackViewHint),
+                new MacSwitch(store.AlwaysFacesBack, v => store.AlwaysFacesBack = v, l.BackViewLabel)),
         };
         if (store.FloatingPetEnabled)
         {
@@ -282,6 +291,9 @@ public static partial class SettingsView
                 v => store.FloatingPetSize = v));
             rows.Add(Ui.Divider());
             rows.Add(ToggleRow(l.FloatingPetBubbleAlertsLabel, store.FloatingPetBubbleAlerts, v => store.FloatingPetBubbleAlerts = v));
+            rows.Add(Ui.Divider());
+            rows.Add(Row(LabelWithHint(l.FloatingPetAgentActivityLabel, l.FloatingPetAgentActivityHint),
+                new MacSwitch(store.FloatingPetAgentActivity, v => store.FloatingPetAgentActivity = v, l.FloatingPetAgentActivityLabel)));
         }
         return Section(l.FloatingPetSectionTitle, rows.ToArray());
     }
@@ -491,8 +503,8 @@ public static partial class SettingsView
     internal static FrameworkElement LabelWithHint(string label, string hint) =>
         Ui.VStack(1, Label(label), Hint(hint));
 
-    internal static FrameworkElement ToggleRow(string label, bool isOn, Action<bool> onChange) =>
-        Row(Label(label), new MacSwitch(isOn, onChange, label));
+    internal static FrameworkElement ToggleRow(string label, bool isOn, Action<bool> onChange, string? hint = null) =>
+        Row(hint == null ? Label(label) : LabelWithHint(label, hint), new MacSwitch(isOn, onChange, label));
 
     /// <summary><c>HStack { Text.font(.callout); Slider; Text(value).font(.caption).monospacedDigit().frame(width:) }</c>.</summary>
     private static FrameworkElement SliderRow(string label, double min, double max, double step, double value,

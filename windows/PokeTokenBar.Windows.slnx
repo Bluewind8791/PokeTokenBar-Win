@@ -4,6 +4,7 @@
     <Project Path="src/PokeTokenBar.Core/PokeTokenBar.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PokeTokenBar.App.Tests/PokeTokenBar.App.Tests.csproj" />
     <Project Path="tests/PokeTokenBar.Core.Tests/PokeTokenBar.Core.Tests.csproj" />
   </Folder>
 </Solution>

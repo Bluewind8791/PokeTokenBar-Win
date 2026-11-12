@@ -96,7 +96,7 @@ public static class CompanionHeader
         Action<string>? onOpenDexEntry)
     {
         var sprite = new SpriteView(store.CurrentSpeciesID, 76, bob: true, animated: true, shiny: store.CurrentIsShiny,
-            form: store.CurrentForm);
+            form: store.CurrentForm, back: store.FacesBack);
         var box = new Border
         {
             Width = 76, Height = 76, CornerRadius = new CornerRadius(12), Child = sprite,
@@ -201,6 +201,7 @@ public static class CompanionHeader
             CompanionStateKind.Focus => l.StatusFocus,
             CompanionStateKind.Tired => l.StatusTired,
             CompanionStateKind.Sleep => l.StatusSleep,
+            CompanionStateKind.Sulk => l.StatusSulk,
             _ => store.JustEvolvedTo is { } name ? l.StatusEvolved(name) : l.StatusGrew,
         };
     }

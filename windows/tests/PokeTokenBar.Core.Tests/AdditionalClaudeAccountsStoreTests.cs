@@ -776,11 +776,13 @@ public sealed class TrackedAccountAdditionalClaudeAccountsStoreTests : IDisposab
         var weeklyOnly = new LimitStatus { SevenDay = new LimitWindow { Utilization = 30 }, AccountEmail = "me@example.com" };
         var noFiveHour = MakeStore(AccountsFx.FullStatus(40, 10, email: "me@corp.example", org: "Corp"), weeklyOnly,
             new() { ["personal"] = DateTimeOffset.Now });
+        noFiveHour.LocalizationLanguage = AppLanguage.En;
         noFiveHour.ShowLimitInMenu = true;
         await noFiveHour.Refresh(scheduleEmptyRetry: false);
         Assert.Equal(PersonalKey, noFiveHour.TrackedClaudeAccount?.Id);
-        Assert.DoesNotContain(noFiveHour.MenuLines, l => l.StartsWith("Claude", StringComparison.Ordinal));
-        Assert.Null(noFiveHour.MenuToolTip);
+        // A plan without a session limit shows its weekly percentage (#464).
+        Assert.Equal(["Claude 30%"], noFiveHour.MenuLines.Where(l => l.StartsWith("Claude", StringComparison.Ordinal)));
+        Assert.Equal("Tracked Claude account: me@example.com", noFiveHour.MenuToolTip);
     });
 
     [Fact]

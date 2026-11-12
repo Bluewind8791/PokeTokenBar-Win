@@ -245,10 +245,18 @@ public class LocalUsageReaderTests
         Assert.True(scan <= LocalUsageReader.StartOfWeek(now, tz));
         Assert.True(scan <= now - LocalUsageReader.BlockWindow);
         Assert.True(scan <= now - LocalUsageReader.RecentUseWindow);
+        // The 21-day rolling trend must not be clipped by the mtime filter either.
+        Assert.True(scan <= LocalUsageReader.StartOfRollingWindow(LocalUsageReader.MaxDailyTrendWindowDays, now, tz));
         Assert.True(scan < LocalUsageReader.StartOfMonth(now, tz));
 
+        // Late in the month (28th) the month start is earlier than the 21-day start: the floor is the month start.
+        var late = new DateTimeOffset(2026, 7, 28, 12, 0, 0, TimeSpan.FromHours(9));
+        Assert.Equal(LocalUsageReader.StartOfMonth(late, tz), LocalUsageReader.EnrichmentScanStart(late, tz));
+
+        // Mid-month (20th): the 21-day window starts on 6/30, before the month start (7/1).
         var mid = new DateTimeOffset(2026, 7, 20, 12, 0, 0, TimeSpan.FromHours(9));
-        Assert.Equal(LocalUsageReader.StartOfMonth(mid, tz), LocalUsageReader.EnrichmentScanStart(mid, tz));
+        Assert.Equal(LocalUsageReader.StartOfRollingWindow(LocalUsageReader.MaxDailyTrendWindowDays, mid, tz),
+            LocalUsageReader.EnrichmentScanStart(mid, tz));
     }
 
     [Fact]
@@ -277,5 +285,55 @@ public class LocalUsageReaderTests
     {
         Assert.Equal("sess", LocalUsageReader.ClaudeSessionID(Path.Combine("p", "sess", "subagents", "agent-1.jsonl")));
         Assert.Equal("sess", LocalUsageReader.ClaudeSessionID(Path.Combine("p", "sess.jsonl")));
+    }
+
+    [Fact]
+    public void DayDifferenceCalculatesCalendarDaysCorrectly()
+    {
+        Assert.Equal(3, LocalUsageReader.DayDifference("2026-10-01", "2026-10-04"));
+        Assert.Equal(-3, LocalUsageReader.DayDifference("2026-10-04", "2026-10-01"));
+        Assert.Equal(0, LocalUsageReader.DayDifference("2026-10-01", "2026-10-01"));
+        Assert.Equal(7, LocalUsageReader.DayDifference("2026-09-25", "2026-10-02"));
+        Assert.Null(LocalUsageReader.DayDifference("invalid", "2026-10-01"));
+    }
+
+    [Fact]
+    public void RollingDailySeriesReturnsExactWindowCountAndFillsMissingDaysWithZero()
+    {
+        static DateTimeOffset Midnight(int y, int m, int d)
+        {
+            var local = new DateTime(y, m, d, 0, 0, 0, DateTimeKind.Unspecified);
+            return new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local));
+        }
+        static UsageEntry E(string id, DateTimeOffset at, long input, long output) => new()
+        {
+            Id = id, Date = at, LocalDay = LocalUsageReader.LocalDay(at), Model = "test", Input = input, Output = output,
+        };
+        var now = Midnight(2026, 10, 15);
+        var entries = new[]
+        {
+            E("e1", Midnight(2026, 10, 14), 100, 50),
+            E("e2", Midnight(2026, 10, 15), 200, 80),
+            E("e0", Midnight(2026, 9, 1), 500, 50),
+        };
+
+        var series7 = LocalUsageReader.RollingDailySeries(entries, 7, now);
+        Assert.Equal(7, series7.Count);
+        Assert.Equal("2026-10-09", series7[0].Date);
+        Assert.Equal("2026-10-15", series7[^1].Date);
+        Assert.Equal(280, series7[^1].TotalTokens);
+        Assert.Equal("2026-10-14", series7[5].Date);
+        Assert.Equal(150, series7[5].TotalTokens);
+        Assert.Equal(0, series7[0].TotalTokens);   // missing days in the window are explicit zeros
+
+        var series14 = LocalUsageReader.RollingDailySeries(entries, 14, now);
+        Assert.Equal(14, series14.Count);
+        Assert.Equal("2026-10-02", series14[0].Date);
+        Assert.Equal("2026-10-15", series14[^1].Date);
+
+        var series21 = LocalUsageReader.RollingDailySeries(entries, 21, now);
+        Assert.Equal(21, series21.Count);
+        Assert.Equal("2026-09-25", series21[0].Date);
+        Assert.Equal("2026-10-15", series21[^1].Date);
     }
 }

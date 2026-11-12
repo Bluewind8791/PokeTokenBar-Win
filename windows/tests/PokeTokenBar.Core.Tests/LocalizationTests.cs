@@ -50,6 +50,8 @@ public class LocalizationInterpolationTests
             // Floating pet & settings
             Expect(lang, "floatingPetHoverTokensOnly", l.FloatingPetHoverTokensOnly(A), A);
             Expect(lang, "floatingPetHoverWithLimit", l.FloatingPetHoverWithLimit(A, B), A, B);
+            Expect(lang, "floatingPetHoverSulkHours", l.FloatingPetHoverSulkHours(4242), "4242");
+            Expect(lang, "floatingPetHoverSulkDays", l.FloatingPetHoverSulkDays(4242), "4242");
             Expect(lang, "intervalLabel", l.IntervalLabel(1860), "31"); // 1860 s → 31 min
             Expect(lang, "customScanRootsMatches", l.CustomScanRootsMatches(4242), "4242");
 
@@ -86,7 +88,7 @@ public class LocalizationInterpolationTests
             // System notifications
             Expect(lang, "notifHatchBody", l.NotifHatchBody(A), A);
             Expect(lang, "notifShinyHatchBody", l.NotifShinyHatchBody(A, 4242), A, "4242");
-            Expect(lang, "notifEvolveBody", l.NotifEvolveBody(A), A);
+            Expect(lang, "notifEvolveBody", l.NotifEvolveBody(A, B), A, B);
             Expect(lang, "notifDittoRevealBody", l.NotifDittoRevealBody(A), A);
             Expect(lang, "notifShinyDittoRevealBody", l.NotifShinyDittoRevealBody(A), A);
             Expect(lang, "notifGraduateBody", l.NotifGraduateBody(A), A);
@@ -388,7 +390,7 @@ public class KoreanParticleTests
         var l = new L(AppLanguage.Ko);
         Assert.Equal("알에서 유니란이 나왔어요!", l.NotifHatchBody("유니란"));
         Assert.Equal("이로치 뚜벅쵸가 태어났어요! (1/48)", l.NotifShinyHatchBody("뚜벅쵸", 48));
-        Assert.Equal("듀란으로 진화했어요!", l.NotifEvolveBody("듀란"));
+        Assert.Equal("솔록이 듀란으로 진화했어요!", l.NotifEvolveBody("솔록", "듀란"));
         Assert.Equal("란쿨루스로 진화했어요!", l.StatusEvolved("란쿨루스"));
         Assert.Equal("레트라를 놓아주고 희귀 알로 바꿀까요?", l.EggConfirm("레트라", l.EggName("rare")));
     }
@@ -397,7 +399,7 @@ public class KoreanParticleTests
     public void OtherLanguagesAreUntouched()
     {
         Assert.Equal("Unfezant hatched from the egg!", new L(AppLanguage.En).NotifHatchBody("Unfezant"));
-        Assert.Equal("デスカーン に進化しました！", new L(AppLanguage.Ja).NotifEvolveBody("デスカーン"));
+        Assert.Equal("デスマス が デスカーン に進化しました！", new L(AppLanguage.Ja).NotifEvolveBody("デスマス", "デスカーン"));
     }
 }
 

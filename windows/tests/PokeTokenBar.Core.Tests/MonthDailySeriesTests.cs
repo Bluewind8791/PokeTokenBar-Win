@@ -139,4 +139,46 @@ public class MonthDailySeriesTests
         Assert.Equal("2026-07-05", LocalUsageReader.LocalDay(LocalUsageReader.StartOfWeek(wednesday, tz, DayOfWeek.Sunday), tz));
         Assert.Equal("2026-07-06", LocalUsageReader.LocalDay(LocalUsageReader.StartOfWeek(wednesday, tz, DayOfWeek.Monday), tz));
     }
+
+    /// <summary>
+    /// Late on the DST fall-back day (2026-11-01 23:59 PST in Los Angeles), 21 calendar days span more than
+    /// 21 × 24 h because 2026-11-01 is 25 hours long. The first chart day (2026-10-12) starts at 00:00 PDT
+    /// (07:00Z), whereas now − 21 × 24 h lands at 00:59 PDT (07:59Z). A session modified at 00:30 PDT (07:30Z)
+    /// must be in the scan (direct and cached) and in the 21-day series.
+    /// </summary>
+    [Fact]
+    public void TwentyOneDayScanIncludesEarlyMorningTranscriptOnFirstDayAcrossDstFallBack()
+    {
+        var la = TimeZoneInfo.FindSystemTimeZoneById("America/Los_Angeles");
+        var now = new DateTimeOffset(2026, 11, 2, 7, 59, 0, TimeSpan.Zero);              // 2026-11-01 23:59 PST
+        var transcriptTime = new DateTimeOffset(2026, 10, 12, 7, 30, 0, TimeSpan.Zero);   // 2026-10-12 00:30 PDT
+        var firstChartDayStart = new DateTimeOffset(2026, 10, 12, 7, 0, 0, TimeSpan.Zero);
+
+        // Precondition: a fixed 21 × 24 h offset would start at 07:59Z and miss the 07:30Z transcript.
+        Assert.True(now - TimeSpan.FromDays(21) > transcriptTime);
+
+        var scanStart = LocalUsageReader.EnrichmentScanStart(now, la);
+        Assert.Equal(firstChartDayStart, scanStart);
+        Assert.True(scanStart <= transcriptTime);
+
+        using var dir = new TempDir();
+        var file = dir.Write([
+            Fixtures.ClaudeLine("oct12-early", "r1", "claude-opus-4-8", Iso8601Parser.Format(transcriptTime), 0, 123, 0, 0),
+        ], "dst-fallback-first-day.jsonl");
+        File.SetLastWriteTimeUtc(file, transcriptTime.UtcDateTime);
+
+        var full = LocalUsageReader.ClaudeEntries(DateTimeOffset.MinValue, [dir.Path], la);
+        var selected = LocalUsageReader.ClaudeEntries(scanStart, [dir.Path], la);
+        var cache = new LocalUsageCache([dir.Path], Path.Combine(dir.Path, "..", Guid.NewGuid() + ".json"), () => now, la);
+        var cached = cache.ClaudeEntries(scanStart);
+        Assert.Equal(123, full.Sum(e => e.Total));
+        Assert.Equal(123, selected.Sum(e => e.Total));
+        Assert.Equal(123, cached.Sum(e => e.Total));
+
+        var recent = ProviderEnrichment.Local(cached, now, la).RecentDaily!;
+        Assert.Equal(21, recent.Count);
+        Assert.Equal("2026-10-12", recent[0].Date);
+        Assert.Equal(123, recent[0].TotalTokens);
+        Assert.Equal("2026-11-01", recent[^1].Date);
+    }
 }

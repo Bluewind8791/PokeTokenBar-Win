@@ -487,24 +487,23 @@ public static class LocalUsageReader
     }
 
     /// <summary>
-    /// Day-by-day totals for the current month, month start through now. The axis is built from the
-    /// month range (cross-month sessions are truncated) and empty days are explicit zeros.
+    /// Day-by-day totals for the local days [startDay, endDay]. The axis is built from the range (entries
+    /// outside it are dropped) and empty days are explicit zeros.
     /// </summary>
-    public static List<DailyUsage> MonthDailySeries(IEnumerable<UsageEntry> entries, DateTimeOffset now,
-        TimeZoneInfo? timeZone = null)
+    public static List<DailyUsage> DailySeries(IEnumerable<UsageEntry> entries, DateTimeOffset startDay,
+        DateTimeOffset endDay, TimeZoneInfo? timeZone = null)
     {
         var tz = timeZone ?? TimeZoneInfo.Local;
         var days = new List<string>();
-        var local = TimeZoneInfo.ConvertTime(now, tz);
-        var lastDay = local.Date;
-        for (var cursor = new DateTime(lastDay.Year, lastDay.Month, 1); cursor <= lastDay; cursor = cursor.AddDays(1))
+        var lastDay = TimeZoneInfo.ConvertTime(endDay, tz).Date;
+        for (var cursor = TimeZoneInfo.ConvertTime(startDay, tz).Date; cursor <= lastDay; cursor = cursor.AddDays(1))
             days.Add(cursor.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 
-        var inMonth = days.ToHashSet();
+        var inRange = days.ToHashSet();
         var buckets = new Dictionary<string, UsageBucket>();
         foreach (var e in entries)
         {
-            if (!inMonth.Contains(e.LocalDay)) continue;
+            if (!inRange.Contains(e.LocalDay)) continue;
             var b = buckets.GetValueOrDefault(e.LocalDay);
             b.Add(e);
             buckets[e.LocalDay] = b;
@@ -516,6 +515,19 @@ public static class LocalUsageReader
                 null, b.CostCoverage);
         }).ToList();
     }
+
+    /// <summary>
+    /// Day-by-day totals for the current month, month start through now. Cross-month sessions are
+    /// truncated and empty days are explicit zeros.
+    /// </summary>
+    public static List<DailyUsage> MonthDailySeries(IEnumerable<UsageEntry> entries, DateTimeOffset now,
+        TimeZoneInfo? timeZone = null) =>
+        DailySeries(entries, StartOfMonth(now, timeZone), now, timeZone);
+
+    /// <summary>Rolling window daily series (e.g. 7, 14, 21 days up to today).</summary>
+    public static List<DailyUsage> RollingDailySeries(IEnumerable<UsageEntry> entries, int days, DateTimeOffset now,
+        TimeZoneInfo? timeZone = null) =>
+        DailySeries(entries, StartOfRollingWindow(days, now, timeZone), now, timeZone);
 
     /// <summary>Active block over the last 5 hours (burn-rate estimate). Zero-token records are ignored.</summary>
     public static BlockUsage? ActiveBlock(IEnumerable<UsageEntry> entries, DateTimeOffset now)
@@ -568,12 +580,31 @@ public static class LocalUsageReader
         return new DateTimeOffset(dt, tz.GetUtcOffset(dt));
     }
 
-    /// <summary>The earliest of month start, week start, now−5h and now−7d: the mtime floor that covers every window.</summary>
+    public const int MaxDailyTrendWindowDays = 21;
+
+    /// <summary>
+    /// Midnight of the first visible day of an N-day rolling trend ending on <paramref name="date"/>. Calendar-day
+    /// arithmetic rather than <c>days × 24 h</c>, so the start stays at 00:00 of the first chart day when the
+    /// window crosses a 25-hour DST fall-back day.
+    /// </summary>
+    public static DateTimeOffset StartOfRollingWindow(int days, DateTimeOffset date, TimeZoneInfo? timeZone = null)
+    {
+        var tz = timeZone ?? TimeZoneInfo.Local;
+        var today = TimeZoneInfo.ConvertTime(date, tz).Date;
+        return LocalMidnight(today.AddDays(-(Math.Max(1, days) - 1)), tz);
+    }
+
+    /// <summary>
+    /// The earliest of month start, week start, now−5h, now−7d and the 21-day trend start: the mtime floor that
+    /// covers every window. A fixed <c>now − 21 × 24 h</c> would clip the first chart day's early hours across a
+    /// DST fall-back day.
+    /// </summary>
     public static DateTimeOffset EnrichmentScanStart(DateTimeOffset now, TimeZoneInfo? timeZone = null)
     {
         var candidates = new[]
         {
             StartOfMonth(now, timeZone), StartOfWeek(now, timeZone), now - BlockWindow, now - RecentUseWindow,
+            StartOfRollingWindow(MaxDailyTrendWindowDays, now, timeZone),
         };
         return candidates.Min();
     }
@@ -585,6 +616,14 @@ public static class LocalUsageReader
         TimeZoneInfo.ConvertTime(date, timeZone ?? TimeZoneInfo.Local).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     public static string TodayKey() => LocalDay(DateTimeOffset.Now);
+
+    /// <summary>Whole calendar days between two "yyyy-MM-dd" keys; positive when <paramref name="to"/> is later. Null when either does not parse.</summary>
+    public static int? DayDifference(string from, string to)
+    {
+        static DateTime? Parse(string key) =>
+            DateTime.TryParseExact(key, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+        return Parse(from) is { } d1 && Parse(to) is { } d2 ? (d2 - d1).Days : null;
+    }
 
     // MARK: JSON value helpers (same leniency as Foundation's JSONSerialization + NSNumber)
 

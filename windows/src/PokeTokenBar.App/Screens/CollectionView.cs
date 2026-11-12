@@ -23,6 +23,8 @@ internal sealed class CollectionState
     public Screen Shown;
 
     public Rarity? SelectedRarity;
+    /// <summary>The generation chip filter of the Pokédex grid (the catch log has none).</summary>
+    public PokedexRegion? SelectedRegion;
     public string SearchText = "";
     public bool ShinyOnly;
     public DexSortOption DexSort = DexSortOption.NumberAsc;
@@ -42,6 +44,7 @@ internal sealed class CollectionState
     {
         Shown = Screen.None;
         SelectedRarity = null;
+        SelectedRegion = null;
         SearchText = "";
         ShinyOnly = false;
         DexSort = DexSortOption.NumberAsc;
@@ -58,6 +61,7 @@ internal sealed class CollectionState
         SearchText = "";
         ShinyOnly = false;
         SelectedRarity = null;
+        SelectedRegion = null;
         DexSort = DexSortOption.NumberAsc;
         LogSort = CatchLogSortOption.RecentFirst;
         if (Search != null) Search.Text = "";
@@ -80,6 +84,10 @@ public static class CollectionView
     public const double ContentHeight = 520;
 
     private static readonly ConditionalWeakTable<AppServices, CollectionState> States = new();
+
+    /// <summary>Render harness: sets the tab's state (a filter) before the first build.</summary>
+    internal static void Preset(AppServices s, Action<CollectionState> configure) =>
+        configure(States.GetValue(s, _ => new CollectionState()));
 
     public static FrameworkElement Build(AppServices s)
     {
@@ -182,6 +190,7 @@ public static class CollectionView
                 sp => nav.DexDetailCollectionID = sp.CollectionID,
                 () => { st.ResetFilters(); st.Grid?.ResetPage(); refresh(false); },
                 r => { st.SelectedRarity = st.SelectedRarity == r ? null : r; st.Grid?.ResetPage(); refresh(false); },
+                g => { st.SelectedRegion = st.SelectedRegion == g ? null : g; st.Grid?.ResetPage(); refresh(false); },
                 () => refresh(false)));
         content.Content = List();
         return root;
@@ -360,14 +369,20 @@ public static class CollectionView
 
     /// <summary>
     /// The title row + rarity filter capsules shared by the Pokédex (species counts) and the catch log
-    /// (<c>DexSummaryHeader</c>, individual counts).
+    /// (<c>DexSummaryHeader</c>, individual counts). The Pokédex adds its completion medals at the end of the title row
+    /// and its generation capsules above the rarity ones.
     /// </summary>
     internal static FrameworkElement RarityHeader(string title, string total, Func<Rarity, int> count, Rarity? selected,
-        L l, Action<Rarity> onSelect)
+        L l, Action<Rarity> onSelect, FrameworkElement? medals = null, FrameworkElement? regionChips = null)
     {
         var titleRow = Ui.HStack(6, Ui.Text(title, Theme.FontSize.Callout, Theme.Keys.Primary, FontWeights.SemiBold),
             Ui.Text(total, Theme.FontSize.Caption, Theme.Keys.Secondary));
-        titleRow.HorizontalAlignment = HorizontalAlignment.Left;
+        if (medals != null)
+        {
+            titleRow.Children.Add(Ui.Spacer(4));
+            titleRow.Children.Add(medals);
+        }
+        else titleRow.HorizontalAlignment = HorizontalAlignment.Left;
         var tallies = Ui.HStack(4);
         foreach (var r in DexUi.RarityDisplayOrder)
         {
@@ -375,14 +390,28 @@ public static class CollectionView
             var tally = RarityTally(l.RarityLabel(r), n, PokemonTypeColors.RarityKey(r), selected == r).Help(l.DexFilterHint);
             tallies.Children.Add(tally.Plain(() => onSelect(r), enabled: n > 0));
         }
+        return Ui.VStack(5, titleRow, regionChips, CapsuleStrip(tallies));
+    }
+
+    /// <summary>A capsule row that scrolls sideways when it outgrows the popover (SwiftUI horizontal ScrollView). macOS
+    /// trackpads swipe it sideways; here the wheel does, since a WPF ScrollViewer with no vertical axis swallows the
+    /// wheel without moving and the last capsules (Unova, Common) would be out of reach.</summary>
+    internal static ScrollViewer CapsuleStrip(FrameworkElement capsules)
+    {
         var strip = new ScrollViewer
         {
-            Content = tallies,
+            Content = capsules,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Focusable = false,
         };
-        return Ui.VStack(5, titleRow, strip);
+        strip.PreviewMouseWheel += (_, e) =>
+        {
+            if (strip.ScrollableWidth <= 0) return;
+            strip.ScrollToHorizontalOffset(strip.HorizontalOffset - e.Delta / 2.0);
+            e.Handled = true;
+        };
+        return strip;
     }
 
     /// <summary>

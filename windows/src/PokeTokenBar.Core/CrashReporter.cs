@@ -32,13 +32,16 @@ public static class CrashReporter
         return abnormal;
     }
 
-    /// <summary>Clean exit: removes the running marker so the next launch does not report a crash.</summary>
-    public static void MarkClean(string? markerPath = null)
+    /// <summary>
+    /// Clean exit: removes the running marker so the next launch does not report a crash.
+    /// Safe to call twice (session end, then OnExit when Windows lets the process get that far).
+    /// </summary>
+    public static void MarkClean(string? markerPath = null, string? reason = null)
     {
         try { File.Delete(markerPath ?? MarkerPath); }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
-        AppLog.Write("clean shutdown");
+        AppLog.Write(reason == null ? "clean shutdown" : $"clean shutdown ({reason})");
     }
 
     /// <summary>

@@ -55,23 +55,37 @@ public sealed record LimitStatus
     /// credential slot apart.</summary>
     [JsonIgnore] public string? AccountEmail { get; set; }
     [JsonIgnore] public string? AccountOrganizationName { get; set; }
+    /// <summary>The current plan name the profile endpoint reports ("Ultra", …), injected by the provider.
+    /// The server names the plan; the app shows it as is, so a rename needs no code change (#463).</summary>
+    [JsonIgnore] public string? PlanDisplayName { get; set; }
 
     public static LimitStatus Decode(ReadOnlySpan<byte> json) =>
         System.Text.Json.JsonSerializer.Deserialize<LimitStatus>(json)
         ?? throw new System.Text.Json.JsonException("null limit status");
 
     /// <summary>
-    /// subscriptionType plus the tier multiplier, e.g. "max" + "default_claude_max_20x" → "Max 20x".
-    /// The multiplier is added whenever the tier carries one (not a Max-only branch).
+    /// The plan label. The profile endpoint's name (<c>plan_display_name</c>) wins; without it the label is built
+    /// from subscriptionType plus the tier multiplier. Claude renamed the Max tiers (Max 5x → Max, Max 20x →
+    /// Ultra) while credentials still carry <c>default_claude_max_5x/20x</c>, so the rename is applied here.
+    /// e.g. ("max", "default_claude_max_20x") → "Ultra". Other plans keep "Name Nx" whenever the tier carries a
+    /// multiplier, and an unknown Max multiplier stays "Max 10x" so a new tier never hides its number.
     /// </summary>
     [JsonIgnore]
     public string? PlanDisplay
     {
         get
         {
+            if (PlanDisplayName?.Trim() is { Length: > 0 } named) return named;
             if (string.IsNullOrEmpty(SubscriptionType)) return null;
             var name = char.ToUpperInvariant(SubscriptionType[0]) + SubscriptionType[1..];
-            return RateLimitTier != null && TierMultiplier(RateLimitTier) is { } multiplier ? $"{name} {multiplier}" : name;
+            if (RateLimitTier == null || TierMultiplier(RateLimitTier) is not { } multiplier) return name;
+            if (!SubscriptionType.Equals("max", StringComparison.OrdinalIgnoreCase)) return $"{name} {multiplier}";
+            return multiplier switch
+            {
+                "5x" => "Max",
+                "20x" => "Ultra",
+                _ => $"Max {multiplier}",
+            };
         }
     }
 
@@ -100,6 +114,17 @@ public sealed record LimitStatus
         }
         return null;
     }
+
+    /// <summary>
+    /// The window a compact surface (menu bar line, tray tooltip) shows: the 5-hour session when present,
+    /// else the weekly window, with the span for the pace marker. Plans without a session limit (Ultra)
+    /// send <c>five_hour: null</c>; reading the 5-hour window alone dropped Claude from the line (#464).
+    /// </summary>
+    [JsonIgnore]
+    public (LimitWindow Window, TimeSpan Span)? HeadlineWindow =>
+        FiveHour is { Utilization: not null } fiveHour ? (fiveHour, LimitWindowSpan.FiveHour)
+        : SevenDay is { Utilization: not null } sevenDay ? (sevenDay, LimitWindowSpan.SevenDay)
+        : null;
 
     /// <summary>
     /// Windows the legacy fields cannot carry: session (=five_hour) and weekly_all (=seven_day) already

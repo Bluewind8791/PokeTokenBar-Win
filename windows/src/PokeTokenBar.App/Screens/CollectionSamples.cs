@@ -21,11 +21,23 @@ public static partial class SampleData
         return PopoverRoot.Build(s);
     }
 
-    public static AppServices CollectionServices(RenderHarness.Context c, bool withForms)
+    /// <summary>
+    /// The regional Pokédex sample of assets/screenshot-regional-dex.png: Kanto and Hoenn complete, Johto complete in
+    /// shiny, Sinnoh 62/107 (selected), Unova 9/156, all 28 Unown letters (the Unown medal) — 457 species.
+    /// </summary>
+    public static FrameworkElement RegionsPopover(RenderHarness.Context c)
+    {
+        var s = CollectionServices(c, withForms: false, savePath: WriteRegionsSave(c.Language));
+        s.Nav.Tab = PopoverTab.Collection;
+        CollectionView.Preset(s, st => st.SelectedRegion = PokedexRegion.Sinnoh);
+        return PopoverRoot.Build(s);
+    }
+
+    public static AppServices CollectionServices(RenderHarness.Context c, bool withForms, string? savePath = null)
     {
         var baseline = Services(c);
         var settings = new AppSettings(null);
-        var companion = new CompanionStore(filePath: WriteCollectionSave(c.Language, withForms), settings: settings,
+        var companion = new CompanionStore(filePath: savePath ?? WriteCollectionSave(c.Language, withForms), settings: settings,
             formNameLoader: DexNames.Fetch);
         companion.SetLanguage(c.Language);
         return new AppServices { Store = baseline.Store, Companion = companion, Updater = baseline.Updater, Nav = new PopoverNavigation() };
@@ -70,6 +82,23 @@ public static partial class SampleData
         [267] = ("Beautifly", "뷰티플라이", "アゲハント"),
         [287] = ("Slakoth", "게을로", "ナマケロ"),
         [479] = ("Rotom", "로토무", "ロトム"),
+        // The first page of the Sinnoh-filtered regional sample.
+        [387] = ("Turtwig", "모부기", "ナエトル"),
+        [388] = ("Grotle", "수풀부기", "ハヤシガメ"),
+        [389] = ("Torterra", "토대부기", "ドダイトス"),
+        [390] = ("Chimchar", "불꽃숭이", "ヒコザル"),
+        [391] = ("Monferno", "파이숭이", "モウカザル"),
+        [392] = ("Infernape", "초염몽", "ゴウカザル"),
+        [393] = ("Piplup", "팽도리", "ポッチャマ"),
+        [394] = ("Prinplup", "팽태자", "ポッタイシ"),
+        [395] = ("Empoleon", "엠페르트", "エンペルト"),
+        [396] = ("Starly", "찌르꼬", "ムックル"),
+        [397] = ("Staravia", "찌르버드", "ムクバード"),
+        [398] = ("Staraptor", "찌르호크", "ムクホーク"),
+        [399] = ("Bidoof", "비버니", "ビッパ"),
+        [400] = ("Bibarel", "비버통", "ビーダル"),
+        [401] = ("Kricketot", "귀뚤뚜기", "コロボーシ"),
+        [402] = ("Kricketune", "귀뚤톡크", "コロトック"),
     };
 
     private static Dictionary<int, Dictionary<string, string>> Names(IEnumerable<int> chain) =>
@@ -128,6 +157,36 @@ public static partial class SampleData
             state.RepresentativeForm = new PokemonForm("heat");
         }
         var path = Path.Combine(Path.GetTempPath(), $"ptb-sample-collection-{Guid.NewGuid():N}.json");
+        File.WriteAllBytes(path, CompanionJson.Serialize(state));
+        return path;
+    }
+
+    private static string WriteRegionsSave(AppLanguage lang)
+    {
+        var state = new CompanionState
+        {
+            InstallBaselineSet = true,
+            UsedSinceInstall = 90_000_000_000,
+            SpentTokens = 10_000_000_000,
+            LastDate = LocalUsageReader.LocalDay(Now),
+            Language = lang,
+        };
+        // One record per block: a DexEntry's chain registers every species in it (as in the store tests).
+        void Add(int first, int last, Rarity rarity, bool shiny = false, PokemonForm? form = null)
+        {
+            var chain = Enumerable.Range(first, last - first + 1).ToList();
+            state.Dex.Add(new DexEntry(first, last, chain, rarity, Now.AddDays(-30), isShiny: shiny, form: form,
+                names: Names(chain.Where(SpeciesNames.ContainsKey))));
+        }
+        Add(1, 151, Rarity.Common);
+        Add(152, 251, Rarity.Uncommon, shiny: true);
+        foreach (var letter in PokemonForm.Forms(PokemonForm.UnownSpeciesID))
+            Add(PokemonForm.UnownSpeciesID, PokemonForm.UnownSpeciesID, Rarity.Rare, form: letter);
+        Add(252, 386, Rarity.Common);
+        Add(387, 390, Rarity.Rare, shiny: true);
+        Add(391, 448, Rarity.Common);
+        Add(494, 502, Rarity.Legendary);
+        var path = Path.Combine(Path.GetTempPath(), $"ptb-sample-regions-{Guid.NewGuid():N}.json");
         File.WriteAllBytes(path, CompanionJson.Serialize(state));
         return path;
     }

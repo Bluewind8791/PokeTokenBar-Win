@@ -23,6 +23,8 @@ public sealed record ProviderEnrichment
     public PeriodUsage? MonthTotal { get; init; }
     /// <summary>Month start → today, empty days as zeros. Gated by <see cref="PeriodsOK"/>.</summary>
     public List<DailyUsage>? MonthDaily { get; init; }
+    /// <summary>Rolling day-by-day totals (21 days → today, empty days as zeros). Gated by <see cref="PeriodsOK"/>.</summary>
+    public List<DailyUsage>? RecentDaily { get; init; }
     public bool PeriodsOK { get; init; }
     /// <summary>Newest entry with tokens; keeps the tab of a provider used recently but not today (#336).</summary>
     public DateTimeOffset? LastUsage { get; init; }
@@ -43,6 +45,7 @@ public sealed record ProviderEnrichment
             MonthTotal = LocalUsageReader.Period(entries, LocalUsageReader.MonthKey(now, timeZone),
                 LocalUsageReader.LocalDay(monthStart, timeZone), today),
             MonthDaily = LocalUsageReader.MonthDailySeries(entries, now, timeZone),
+            RecentDaily = LocalUsageReader.RollingDailySeries(entries, LocalUsageReader.MaxDailyTrendWindowDays, now, timeZone),
             PeriodsOK = true,
             // Zero-token <synthetic> records are not use: an installed-only provider stays hidden (#56).
             LastUsage = withTokens.Count == 0 ? null : withTokens.Max(e => e.Date),

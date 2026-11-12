@@ -10,6 +10,8 @@ Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
 
 dotnet test (Join-Path $root 'tests/PokeTokenBar.Core.Tests') -c Release
 if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
+dotnet test (Join-Path $root 'tests/PokeTokenBar.App.Tests') -c Release
+if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
 
 $props = @('-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
            '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', $publish)

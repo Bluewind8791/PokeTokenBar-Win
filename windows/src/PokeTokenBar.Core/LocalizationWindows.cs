@@ -28,6 +28,29 @@ public sealed partial class L
         "Ruft offizielle Limits ohne die Claude-Code-Anmeldung ab. Füge den Wert aus DevTools → Application → Cookies → claude.ai → sessionKey ein.",
         "Загружает официальные лимиты без входа в Claude Code. Вставьте значение из DevTools → Application → Cookies → claude.ai → sessionKey.");
 
+    /// <summary>The tray holds an icon only, so the "menu bar" items show in the tray tooltip (macOS: "Show in menu bar").</summary>
+    public string WinMenuBarSectionTitle => T(
+        "트레이 툴팁에 표시",
+        "Show in tray tooltip",
+        "トレイのツールチップに表示",
+        "Mostrar en la información de la bandeja",
+        "Afficher dans l'info-bulle de la zone de notification",
+        "Mostrar na dica da bandeja",
+        "Im Tray-Tooltip anzeigen",
+        "Показывать в подсказке значка в трее");
+
+    /// <summary>The tray always shows the icon alone; with every item off the tooltip shows only the app name
+    /// (macOS: "All off shows only the character").</summary>
+    public string WinAllOffHint => T(
+        "전부 끄면 툴팁에 앱 이름만 표시됩니다",
+        "All off shows only the app name in the tooltip",
+        "すべてオフにするとツールチップにはアプリ名だけが表示されます",
+        "Con todo desactivado, la información solo muestra el nombre de la app",
+        "Tout désactivé, l'info-bulle n'affiche que le nom de l'app",
+        "Com tudo desligado, a dica mostra só o nome do app",
+        "Alles aus zeigt im Tooltip nur den App-Namen",
+        "Если всё выключить, в подсказке останется только название приложения");
+
     /// <summary>Windows reads <c>~/.claude/.credentials.json</c>; there is no prompt to avoid.</summary>
     public string WinOnlyOnPress => T(
         "Claude Code 로그인 파일(~/.claude/.credentials.json)을 지금 다시 읽어 한도를 갱신해요. 토큰이 만료됐다면 Claude Code 에 다시 로그인한 뒤 누르세요",

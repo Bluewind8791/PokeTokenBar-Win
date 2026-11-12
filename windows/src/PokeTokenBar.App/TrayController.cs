@@ -110,8 +110,8 @@ public sealed class TrayController : IDisposable
         foreach (var entry in _app.MenuEntries())
         {
             if (entry is not { } e) { menu.Items.Add(new Forms.ToolStripSeparator()); continue; }
-            var item = new Forms.ToolStripMenuItem(e.Title) { Enabled = e.Action != null };
-            if (e.Action is { } action) item.Click += (_, _) => action();
+            var item = new Forms.ToolStripMenuItem(e.Title) { Enabled = e.Action != null, Checked = e.IsChecked };
+            if (e.Action is { } action) item.Click += (_, _) => _app.Perform(action);
             menu.Items.Add(item);
         }
     }

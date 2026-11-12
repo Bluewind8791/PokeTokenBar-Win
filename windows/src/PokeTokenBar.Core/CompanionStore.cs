@@ -20,6 +20,13 @@ public sealed class CompanionStore
     /// <summary>The live state. Treat as read-only; every mutation goes through the store's operations.</summary>
     public CompanionState State => _state;
     public CompanionStateKind DisplayState { get; private set; } = CompanionStateKind.Egg;
+    /// <summary>Time since the last token usage while <see cref="DisplayState"/> is <c>Sulk</c>, else 0.</summary>
+    public TimeSpan SulkIdle { get; private set; }
+    /// <summary>Mirror of <c>UsageStore.AlwaysFacesBack</c> (set by <c>UsageStore.UpdateCompanion</c>): a display preference.</summary>
+    public bool AlwaysFacesBack { get; set; }
+    /// <summary>The companion shows its back sprite on every surface: while sulking, or always when asked to.
+    /// An egg has no back to show.</summary>
+    public bool FacesBack => _state.Active != null && (AlwaysFacesBack || DisplayState == CompanionStateKind.Sulk);
     public EvoLine? CurrentLine { get; private set; }
     public RepresentativeSubjectInfo RepresentativeSubject { get; private set; } = new(null, false);
     public bool IsHatching { get; private set; }
@@ -162,6 +169,7 @@ public sealed class CompanionStore
         _settings.Set(GrowthDifficultyKey, GrowthDifficulty);
         _settings.Set(ShopDifficultyKey, ShopDifficulty);
         MigratePokemonProfilesIfNeeded();
+        SeedDexCompletionsIfNeeded();
         RefreshRepresentativeSubject();
         RefreshSnapshots();
         if (_state.Active != null) DisplayState = CompanionStateKind.Idle;
@@ -358,6 +366,20 @@ public sealed class CompanionStore
         }
     }
 
+    /// <summary>Follow the companion being raised, even when a Pokédex representative is pinned.</summary>
+    public string MenuGrowthText
+    {
+        get
+        {
+            var total = IsEgg ? EggHatchThreshold : Threshold;
+            var credits = IsEgg ? _state.EggUsage : _state.Active?.UsedAtStage ?? 0;
+            var used = Math.Min(Math.Max(0, credits), total);
+            // Match Home's integer flooring without losing exact boundaries to double rounding.
+            var percent = total > 0 ? used * 100 / total : 0;
+            return L.MenuGrowthProgress((int)percent, IsEgg);
+        }
+    }
+
     public long TokensToNext => _state.Active is { } a ? Math.Max(0, Threshold - a.UsedAtStage) : 0;
 
     /// <summary>
@@ -424,7 +446,8 @@ public sealed class CompanionStore
                 nature: active.Nature,
                 profile: active.Profile,
                 names: NamesFromLine(active.PathIDs),
-                form: active.Form);
+                form: active.Form,
+                prayers: active.Prayers);
         }
     }
 
@@ -453,7 +476,8 @@ public sealed class CompanionStore
             profile: a.Profile?.Clone(),
             names: NamesFromLine(chain),
             releasedAt: now,
-            form: a.Form);
+            form: a.Form,
+            prayers: a.Prayers);
     }
 
     public List<DexEntry> DexEntries
@@ -537,6 +561,68 @@ public sealed class CompanionStore
         if (!PokemonForm.HasForms(speciesID)) return [];
         return CollectedDexSpecies(groupForms: true).Where(s => s.Id == speciesID).ToList();
     }
+
+    // MARK: Generation (region) dex completion tracking
+
+    /// <summary>Owned species reduced to the (dex number, shiny) pairs the generation math needs.</summary>
+    private List<(int Id, bool IsShiny)> OwnedDexForProgress => DexSpeciesList.Select(s => (s.Id, s.IsShiny)).ToList();
+
+    /// <summary>Per-region owned/total progress, in National Dex order. Drives the Pokédex generation chips.</summary>
+    public List<DexCompletion> DexCompletions => DexProgress.RegionCompletions(OwnedDexForProgress);
+
+    /// <summary>National (Gen 1–5) progress for the Pokédex header.</summary>
+    public (int Owned, int ShinyOwned, int Total) NationalDexProgress => DexProgress.NationalProgress(OwnedDexForProgress);
+
+    /// <summary>Every completion badge currently earned — derived, never persisted (ownership only grows).</summary>
+    public List<DexBadge> EarnedDexBadges => DexProgress.EarnedBadges(OwnedDexForProgress,
+        _state.CollectedForms(PokemonForm.UnownSpeciesID).Count);
+
+    /// <summary>
+    /// Fires a one-time completion notification for every badge earned since the last check. Idempotent: a badge
+    /// already in <c>NotifiedDexCompletions</c> never re-fires. Does not persist on its own — <see cref="Save"/> calls
+    /// it just before encoding, so the recorded keys are written in the same pass. Guarded on seeding so pre-feature
+    /// completions are recorded by <see cref="SeedDexCompletionsIfNeeded"/>, not announced here.
+    /// </summary>
+    public void CheckDexCompletions()
+    {
+        if (!_state.DexCompletionsSeeded) return;
+        foreach (var badge in DexProgress.NewlyEarnedBadges(EarnedDexBadges, _state.NotifiedDexCompletions))
+        {
+            var (title, body) = DexCompletionNotification(badge);
+            NotifyCompanionEvent(title, body);
+            _state.NotifiedDexCompletions.Add(badge.NotificationKey);
+        }
+    }
+
+    /// <summary>
+    /// On the first run after this feature ships (and after importing a save that predates it), records already-earned
+    /// badges as announced <b>without</b> firing — a player who finished a region months ago should not get a
+    /// notification burst.
+    /// </summary>
+    private void SeedDexCompletionsIfNeeded()
+    {
+        if (_state.DexCompletionsSeeded) return;
+        _state.DexCompletionsSeeded = true;
+        var keys = EarnedDexBadges.Select(b => b.NotificationKey).ToList();
+        // A fresh or just-reset save owns nothing — don't rewrite the state file just to seed an empty set (that would
+        // clobber the "corrupt original moved aside, not recreated" invariant). The seeded flag then persists on the
+        // next natural save; re-seeding meanwhile is idempotent.
+        if (keys.Count == 0) return;
+        _state.NotifiedDexCompletions.UnionWith(keys);
+        Save();
+    }
+
+    private (string Title, string Body) DexCompletionNotification(DexBadge badge) => badge switch
+    {
+        { Kind: DexBadgeKind.Region, Region: { } r } =>
+            (L.NotifDexRegionCompleteTitle(L.RegionName(r)), L.NotifDexRegionCompleteBody(L.RegionName(r))),
+        { Kind: DexBadgeKind.RegionShiny, Region: { } r } =>
+            (L.NotifDexRegionShinyCompleteTitle(L.RegionName(r)), L.NotifDexRegionShinyCompleteBody(L.RegionName(r))),
+        { Kind: DexBadgeKind.Unown } => (L.NotifDexUnownCompleteTitle, L.NotifDexUnownCompleteBody),
+        { Kind: DexBadgeKind.National } => (L.NotifDexNationalCompleteTitle, L.NotifDexNationalCompleteBody),
+        { Kind: DexBadgeKind.NationalShiny } => (L.NotifDexNationalShinyCompleteTitle, L.NotifDexNationalShinyCompleteBody),
+        _ => throw new ArgumentOutOfRangeException(nameof(badge), badge, null),
+    };
 
     private List<DexSpecies> CollectedDexSpecies(bool groupForms)
     {
@@ -644,10 +730,11 @@ public sealed class CompanionStore
 
     /// <summary>Filters and sorts DexSpecies for the Pokédex grid.</summary>
     public List<DexSpecies> FilteredDexSpecies(string query = "", Rarity? rarity = null, bool shinyOnly = false,
-        DexSortOption sort = DexSortOption.NumberAsc)
+        PokedexRegion? region = null, DexSortOption sort = DexSortOption.NumberAsc)
     {
         IEnumerable<DexSpecies> result = DexSpeciesList;
         if (rarity is { } r) result = result.Where(s => s.Rarity == r);
+        if (region is { } g) result = result.Where(s => g.DexRange().Contains(s.Id));
         if (shinyOnly) result = result.Where(s => s.IsShiny);
         if (DexSearchMatcher.Create(query) is { } matcher) result = result.Where(matcher.Matches);
         return SortDexSpecies(result.ToList(), sort);
@@ -840,15 +927,18 @@ public sealed class CompanionStore
     /// <summary>
     /// Feeds usage into the companion. <paramref name="todayTokensByProvider"/> holds only providers whose today
     /// value is confirmed (keyed by <c>UsageProvider.id</c>); <paramref name="hasUsageData"/> is whether any
-    /// snapshot exists for display.
+    /// snapshot exists for display. <paramref name="timeSinceLastUsage"/>: null when unknown (see
+    /// <c>UsageStore.TimeSinceLastUsage</c>); unknown never sulks. It comes from the slower enrichment scan, so a
+    /// rise in today's total seen here counts as usage at once.
     /// </summary>
     public void Update(IReadOnlyDictionary<string, long> todayTokensByProvider, string todayDate, long monthTotal,
-        BurnTier burnTier, bool limitWarning, bool hasUsageData)
+        BurnTier burnTier, bool limitWarning, bool hasUsageData, TimeSpan? timeSinceLastUsage = null)
     {
         var todayTokens = todayTokensByProvider.Values.Sum();
         // hasUsageData only says a snapshot exists for display; this map holds providers whose today date is
         // confirmed. A stale snapshot or a today == nil carrier is not an observation that may move the ledger.
         var hasCurrentProviderData = hasUsageData && todayTokensByProvider.Count > 0;
+        var idle = EffectiveIdle(timeSinceLastUsage, todayDate, todayTokens, hasCurrentProviderData);
         if (!_state.InstallBaselineSet)
         {
             // Install baseline: today's value at the moment real data arrives (earlier usage not counted).
@@ -948,7 +1038,8 @@ public sealed class CompanionStore
         if (_state.Active is { } a && a.DittoDisguise != null && !a.DittoRevealed && CurrentLine != null
             && !IsHatching && !_isRevealingDitto && a.UsedAtStage >= StageThreshold(a))
             Spawn(RevealDitto);
-        DisplayState = ComputeState(burnTier, limitWarning, hasUsageData, todayTokens);
+        DisplayState = ComputeState(burnTier, limitWarning, hasUsageData, todayTokens, idle);
+        SulkIdle = DisplayState == CompanionStateKind.Sulk ? idle ?? TimeSpan.Zero : TimeSpan.Zero;
         Save();
         AutoSnapshotIfNeeded();
     }
@@ -1013,6 +1104,7 @@ public sealed class CompanionStore
                 AppLog.Write($"evolve: repaired invalid planned path for base {a.BaseID}");
             }
             var form = a.Form;
+            var oldName = FormDisplayName(line.LocalizedName(a.CurrentID, _state.Language), a.CurrentID, form);
             var usedAtStage = a.UsedAtStage;
             a.PathIDs = a.PathIDs.Take(a.StageIndex + 1).Append(next.SpeciesID).ToList();
             a.StageIndex += 1;
@@ -1030,7 +1122,7 @@ public sealed class CompanionStore
             // Short levelUp window so "evolved into …" shows at the moment of evolution (same pattern as
             // hatch/graduate); without it ComputeState never returned .levelUp and the message was dead code.
             _eventUntil = _clock().AddSeconds(4);
-            NotifyCompanionEvent(L.NotifEvolveTitle, L.NotifEvolveBody(newName));
+            NotifyCompanionEvent(L.NotifEvolveTitle, L.NotifEvolveBody(oldName, newName));
         }
         ReconcileActiveProfileGrowth();
         Save();
@@ -1122,7 +1214,8 @@ public sealed class CompanionStore
             isShiny: a.IsShiny, nature: a.Nature,
             profile: a.Profile?.Clone(),
             names: NamesFromLine(a.PathIDs), // every chain species' multilingual names (instant display)
-            form: a.Form));
+            form: a.Form,
+            prayers: a.Prayers));
         var name = FormDisplayName(CurrentLine?.LocalizedName(finalID, _state.Language) ?? "", finalID, a.Form);
         JustGraduated = name;
         NotifyCompanionEvent(L.NotifGraduateTitle, L.NotifGraduateBody(name));
@@ -1132,6 +1225,7 @@ public sealed class CompanionStore
         _activeGeneration += 1;
         CurrentLine = null;
         _state.EggUsage = 0; // the new egg incubates from scratch
+        _state.ResetEggPrayers();
         IsHatchRetryDelayed = false;
         // EggTier is untouched: an active Pokémon existed, so the guarantee is already null (hatch consumed it;
         // disk/import normalize via Sanitized). HatchCore stays the single consumer.
@@ -1374,6 +1468,7 @@ public sealed class CompanionStore
         _activeGeneration += 1;
         CurrentLine = null;
         _state.EggUsage = 0; // the new egg incubates from scratch (5M to hatch again)
+        _state.ResetEggPrayers();
         IsHatchRetryDelayed = false;
         _state.EggTier = tier; // rarity guarantee (null = none)
         _state.PendingHatchID = null; // roll from scratch with the new guarantee
@@ -1386,6 +1481,15 @@ public sealed class CompanionStore
         Spawn(EnsureEggPrefetch); // warm the next hatch
         Save();
         return true;
+    }
+
+    /// <summary>Pray over the egg. A placebo: it only counts, and never touches an RNG or a roll — the species is
+    /// usually already in <c>PendingHatchID</c> (prefetched at purchase) long before anyone prays.</summary>
+    public void Pray()
+    {
+        if (_state.Active != null) return;
+        _state.EggPrayers = new PrayerRecord((_state.EggPrayers?.Count ?? 0) + 1);
+        Save();
     }
 
     // Plain (no guarantee) egg wrappers, kept for existing callers/tests.
@@ -1488,7 +1592,8 @@ public sealed class CompanionStore
         {
             _state.Inventory[ItemKind.RareCandy.RawValue()] = ItemCount(ItemKind.RareCandy) + g.Count;
             // The grant itself is a state change regardless of notifications; the notification says why.
-            NotifyCompanionEvent(L.NotifCandyTitle(L.ItemName(ItemKind.RareCandy.RawValue()), g.Count), L.NotifCandyBody(g.WindowName));
+            NotifyCompanionEvent(L.NotifCandyTitle(L.ItemName(ItemKind.RareCandy.RawValue()), g.Count), L.NotifCandyBody(g.WindowName),
+                showsOnPet: false);
         }
         // Re-arming (util dip / new epoch) must persist even without grants: otherwise a restart sees a stale
         // tier=1 and the next 100% is mistaken for "already granted" (regression).
@@ -1499,9 +1604,23 @@ public sealed class CompanionStore
     private static bool SameMap<TValue>(IReadOnlyDictionary<string, TValue> a, IReadOnlyDictionary<string, TValue> b) =>
         a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var v) && EqualityComparer<TValue>.Default.Equals(v, kv.Value));
 
+    /// <summary>A hatch / evolution / graduation / Ditto line the floating pet pops once. <c>Seq</c> tells a new event
+    /// from one already shown, even when two share a clock instant.</summary>
+    public sealed record CompanionEvent(int Seq, string Text, DateTimeOffset At);
+
+    /// <summary>The newest event line. Recorded before the notification setting is checked, so the pet shows it
+    /// with notifications off too.</summary>
+    public CompanionEvent? LatestEvent { get; private set; }
+    private int _eventSeq;
+
     /// <summary>Companion event notification (only while the toggle is on). Independent of limit alerts.</summary>
-    private void NotifyCompanionEvent(string title, string body)
+    private void NotifyCompanionEvent(string title, string body, bool showsOnPet = true)
     {
+        if (showsOnPet)
+        {
+            _eventSeq += 1;
+            LatestEvent = new CompanionEvent(_eventSeq, body, _clock());
+        }
         if (!(_settings.GetBool(CompanionNotificationsKey) ?? true)) return;
         CompanionNotification?.Invoke(title, body);
     }
@@ -1758,6 +1877,8 @@ public sealed class CompanionStore
         var overflow = Math.Max(0, _state.EggUsage - EggHatchThreshold);
         _state.EggUsage = 0;
         _state.EggTier = null; // the guarantee is consumed by this hatch (the next egg has none)
+        var prayers = _state.EggPrayers; // moves onto the hatchling; the egg side is cleared
+        _state.ResetEggPrayers();
         // Individual rolls — shiny (1/64, charm 1/48) and nature (25) fixed at hatch, kept through evolution.
         var shinyOdds = ShinyDenominator;
         var isShiny = RollsShiny(_rng.Next(), OwnsShinyCharm);
@@ -1777,11 +1898,13 @@ public sealed class CompanionStore
         _activeGeneration += 1;
         _state.Active = new MonState(line.BaseID, [line.BaseID], evolutionPlan, stageIndex: 0, usedAtStage: 0,
             rarity: line.Rarity, totalForms: evolutionPlan.Count, isShiny: isShiny, nature: nature, profile: profile,
-            hasGrowthBoost: hasGrowthBoost, dittoDisguise: dittoDisguise, form: form);
+            hasGrowthBoost: hasGrowthBoost, dittoDisguise: dittoDisguise, form: form, prayers: prayers);
         AppLog.Write($"hatch: base={line.BaseID} rarity={line.Rarity.RawValue()} shiny={isShiny} forms={evolutionPlan.Count} boost={hasGrowthBoost} ditto={dittoDisguise != null}");
         var name = FormDisplayName(line.LocalizedName(line.BaseID, _state.Language), line.BaseID, form);
-        NotifyCompanionEvent(showShiny ? L.NotifShinyHatchTitle : L.NotifHatchTitle,
-            showShiny ? L.NotifShinyHatchBody(name, shinyOdds) : L.NotifHatchBody(name));
+        var hatchBody = prayers is { Count: > 0 }
+            ? L.NotifPrayerHatchBody(name, prayers.Count, showShiny, line.Rarity)
+            : showShiny ? L.NotifShinyHatchBody(name, shinyOdds) : L.NotifHatchBody(name);
+        NotifyCompanionEvent(showShiny ? L.NotifShinyHatchTitle : L.NotifHatchTitle, hatchBody);
         JustEvolvedTo = null; // a new hatch says "grew", not the previous evolution's name
         DisplayState = CompanionStateKind.LevelUp;
         _eventUntil = _clock().AddSeconds(4);
@@ -1983,11 +2106,39 @@ public sealed class CompanionStore
         return null;
     }
 
-    private CompanionStateKind ComputeState(BurnTier burnTier, bool limitWarning, bool hasUsageData, long today)
+    /// <summary>Today's total at the previous refresh, and when a rise in it was last seen. The enrichment scan's
+    /// <c>LastUsage</c> lags a refresh behind, so without this the companion would keep its back turned for a while
+    /// after usage resumed. Not persisted: after a launch there is nothing to compare with.</summary>
+    private (string Date, long Total)? _lastSeenToday;
+    private DateTimeOffset? _lastObservedUsage;
+
+    /// <summary>
+    /// <paramref name="timeSinceLastUsage"/>, capped by how long ago this store itself saw today's total rise. A new
+    /// day or a first sighting only sets the baseline — it is not usage, so a midnight rollover neither un-sulks nor
+    /// sulks by itself. Null stays null: unknown is never idle.
+    /// </summary>
+    private TimeSpan? EffectiveIdle(TimeSpan? timeSinceLastUsage, string todayDate, long todayTokens, bool hasCurrentProviderData)
+    {
+        if (hasCurrentProviderData)
+        {
+            if (_lastSeenToday is { } seen && seen.Date == todayDate && todayTokens > seen.Total)
+                _lastObservedUsage = _clock();
+            _lastSeenToday = (todayDate, todayTokens);
+        }
+        if (timeSinceLastUsage is not { } reported) return null;
+        if (_lastObservedUsage is not { } observed) return reported;
+        var sinceObserved = _clock() - observed;
+        if (sinceObserved < TimeSpan.Zero) sinceObserved = TimeSpan.Zero;
+        return reported < sinceObserved ? reported : sinceObserved;
+    }
+
+    private CompanionStateKind ComputeState(BurnTier burnTier, bool limitWarning, bool hasUsageData, long today,
+        TimeSpan? timeSinceLastUsage = null)
     {
         if (_state.Active == null) return CompanionStateKind.Egg;
         if (JustGraduated != null || (_eventUntil is { } until && _clock() < until)) return CompanionStateKind.LevelUp;
         if (limitWarning) return CompanionStateKind.Tired;
+        if (hasUsageData && timeSinceLastUsage is { } idle && idle >= PokemonBalance.SulkAfterIdle) return CompanionStateKind.Sulk;
         if (!hasUsageData || today == 0) return CompanionStateKind.Sleep;
         return burnTier switch
         {
@@ -2035,6 +2186,7 @@ public sealed class CompanionStore
         MintFeedbackNature = null;
         DisplayState = _state.Active != null ? CompanionStateKind.Idle : CompanionStateKind.Egg;
         MigratePokemonProfilesIfNeeded();
+        SeedDexCompletionsIfNeeded();
         Save();
         if (_state.Active != null) Spawn(LoadCurrentLine);
         if (_detailProvider != null) Spawn(PreparePokemonProfiles);
@@ -2353,6 +2505,7 @@ public sealed class CompanionStore
     private void Save()
     {
         RefreshRepresentativeSubject();
+        CheckDexCompletions();   // announce each generation completion once, wherever owned growth is persisted
         if (_persists)
         {
             try

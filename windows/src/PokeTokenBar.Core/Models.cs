@@ -72,6 +72,38 @@ public sealed record PeriodUsage(string Period, long TotalTokens, double TotalCo
     public UsageCost UsageCost => new(TotalCost, CostCoverage);
 }
 
+/// <summary>Port of <c>DailyTrendWindow</c> (Models.swift): the span of the popover's daily trend.</summary>
+public enum DailyTrendWindow { D7, D14, D21, Month }
+
+public static class DailyTrendWindows
+{
+    public static string RawValue(this DailyTrendWindow window) => window switch
+    {
+        DailyTrendWindow.D7 => "7d",
+        DailyTrendWindow.D14 => "14d",
+        DailyTrendWindow.D21 => "21d",
+        _ => "month",
+    };
+
+    public static DailyTrendWindow? FromRawValue(string? raw) => raw switch
+    {
+        "7d" => DailyTrendWindow.D7,
+        "14d" => DailyTrendWindow.D14,
+        "21d" => DailyTrendWindow.D21,
+        "month" => DailyTrendWindow.Month,
+        _ => null,
+    };
+
+    /// <summary>Rolling window length in days; null for the calendar month.</summary>
+    public static int? DayCount(this DailyTrendWindow window) => window switch
+    {
+        DailyTrendWindow.D7 => 7,
+        DailyTrendWindow.D14 => 14,
+        DailyTrendWindow.D21 => 21,
+        _ => null,
+    };
+}
+
 /// <summary>
 /// Port of <c>ISO8601Parser</c> (Models.swift): internet date-time with a required zone,
 /// optional fractional seconds truncated to milliseconds (Foundation's fractional formatter precision).

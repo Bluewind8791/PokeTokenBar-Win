@@ -202,6 +202,24 @@ public sealed class OAuthProfileCacheTests
         Assert.Null(OAuthProfileData.Identity("""{"account":{"email":""}}"""u8.ToArray()));
         Assert.Null(OAuthProfileData.Identity("not json"u8.ToArray()));
     }
+
+    /// <summary>The server's current plan name: how a rename (Max 20x → Ultra) reaches the screen without an app
+    /// change. Missing or blank must be null so the tier fallback stays alive (#463).</summary>
+    [Fact]
+    public void ProfileParsingReadsThePlanDisplayName()
+    {
+        Assert.Equal(new AccountIdentity("dev@example.com", null, "Ultra"),
+            OAuthProfileData.Identity("""
+                {"account":{"email":"dev@example.com"},
+                "organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_20x",
+                "plan_display_name":"Ultra","plan_display_label":"Ultra plan"}}
+                """u8.ToArray()));
+        Assert.Equal("Max", OAuthProfileData.Identity(
+            """{"account":{"email":"dev@example.com"},"organization":{"plan_display_name":"  Max  "}}"""u8.ToArray())?.PlanDisplayName);
+        Assert.Null(OAuthProfileData.Identity(
+            """{"account":{"email":"dev@example.com"},"organization":{"plan_display_name":"   "}}"""u8.ToArray())?.PlanDisplayName);
+        Assert.Null(OAuthProfileData.Identity("""{"account":{"email":"dev@example.com"}}"""u8.ToArray())?.PlanDisplayName);
+    }
 }
 
 /// <summary>The OAuth provider against a fake transport (no request leaves the machine).</summary>
@@ -225,11 +243,27 @@ public sealed class OAuthLimitsProviderTests : IDisposable
         var status = await new OAuthLimitsProvider(new OAuthAccessTokenCache(File_), handler.Client()).Fetch();
 
         Assert.Equal(11, status.FiveHour?.Utilization);
-        Assert.Equal("Max 20x", status.PlanDisplay);
+        Assert.Equal("Ultra", status.PlanDisplay);
         Assert.Equal("me@example.com", status.AccountDisplay);
         var usage = handler.Requests.First(r => r.RequestUri!.AbsolutePath == "/api/oauth/usage");
         Assert.Equal("Bearer token-a", usage.Headers.Authorization?.ToString());
         Assert.Equal("oauth-2025-04-20", string.Join("", usage.Headers.GetValues("anthropic-beta")));
+    }
+
+    /// <summary>The profile's plan name reaches the status and wins over the credential's tier (#463).</summary>
+    [Fact]
+    public async Task FetchLabelsThePlanWithTheProfileName()
+    {
+        CredentialFiles.Write(File_, "token-a", "max", tier: "default_claude_max_20x");
+        var handler = new StubHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/oauth/usage" => StubHandler.Json("""{"five_hour":{"utilization":11}}"""),
+            "/api/oauth/profile" => StubHandler.Json("""{"account":{"email":"me@example.com"},"organization":{"plan_display_name":"Max Team"}}"""),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+        var status = await new OAuthLimitsProvider(new OAuthAccessTokenCache(File_), handler.Client()).Fetch();
+
+        Assert.Equal("Max Team", status.PlanDisplay);
     }
 
     /// <summary>A 401 re-reads the file once: a token Claude Code rewrote meanwhile is retried.</summary>

@@ -89,6 +89,8 @@ public sealed class OAuthLimitsProvider : IClaudeLimitsProviding
         {
             status.AccountEmail = identity.Email;
             status.AccountOrganizationName = identity.OrganizationName;
+            // The server's current plan name: a rename reaches the screen without an app change.
+            status.PlanDisplayName = identity.PlanDisplayName;
         }
         return status;
     }
@@ -111,8 +113,10 @@ public sealed class OAuthLimitsProvider : IClaudeLimitsProviding
     }
 }
 
-/// <summary>The OAuth token's real owner. The usage response names no account, the profile endpoint does.</summary>
-public sealed record AccountIdentity(string Email, string? OrganizationName);
+/// <summary>The OAuth token's real owner. The usage response names no account, the profile endpoint does.
+/// <paramref name="PlanDisplayName"/> is the server's plan name (<c>organization.plan_display_name</c>); the saved
+/// login (.claude.json) has none.</summary>
+public sealed record AccountIdentity(string Email, string? OrganizationName, string? PlanDisplayName = null);
 
 /// <summary>
 /// Port of <c>OAuthProfileCache</c>: one profile request per token, since the owner cannot change while
@@ -175,8 +179,9 @@ public sealed class OAuthProfileCache
 public static class OAuthProfileData
 {
     /// <summary>
-    /// <c>{"account":{"email":…},"organization":{"name":…}}</c>. Without an email the whole response is
-    /// dropped (a partial label misleads); the organization is optional.
+    /// <c>{"account":{"email":…},"organization":{"name":…,"plan_display_name":…}}</c>. Without an email the whole
+    /// response is dropped (a partial label misleads); the organization is optional. Without a plan name the
+    /// label is built from the tier.
     /// </summary>
     public static AccountIdentity? Identity(byte[] data)
     {
@@ -188,17 +193,24 @@ public static class OAuthProfileData
                 || !root.TryGetProperty("account", out var account) || account.ValueKind != JsonValueKind.Object
                 || !account.TryGetProperty("email", out var email) || email.ValueKind != JsonValueKind.String
                 || email.GetString() is not { Length: > 0 } emailText) return null;
-            string? org = null;
-            if (root.TryGetProperty("organization", out var organization) && organization.ValueKind == JsonValueKind.Object
-                && organization.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
-                && name.GetString() is { Length: > 0 } nameText) org = nameText;
-            return new AccountIdentity(emailText, org);
+            string? org = null, plan = null;
+            if (root.TryGetProperty("organization", out var organization) && organization.ValueKind == JsonValueKind.Object)
+            {
+                org = NonEmpty(organization, "name");
+                plan = NonEmpty(organization, "plan_display_name");
+            }
+            return new AccountIdentity(emailText, org, plan);
         }
         catch (JsonException)
         {
             return null;
         }
     }
+
+    /// <summary>The trimmed string at <paramref name="key"/>; null when missing, not a string, or blank.</summary>
+    private static string? NonEmpty(JsonElement obj, string key) =>
+        obj.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+            && value.GetString()?.Trim() is { Length: > 0 } text ? text : null;
 }
 
 /// <summary>

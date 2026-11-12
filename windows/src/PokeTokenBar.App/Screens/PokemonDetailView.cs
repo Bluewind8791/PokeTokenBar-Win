@@ -327,10 +327,14 @@ internal static class PokemonDetailView
                 Left(Ui.HStack(12,
                     ValuePair(L.Level, $"{profile.Level}"),
                     ValuePair(L.Gender, L.GenderLabel(profile.Gender)),
-                    ValuePair(L.Nature, entry.Nature?.Name(Language) ?? "—"))),
-                Ui.VStack(1, Ui.Text(L.Ability, Theme.FontSize.Subheadline, Theme.Keys.Secondary), abilityValue),
-                StatsSection(PokemonStatCalculator.Stats(details, profile, entry.Nature)),
-                Title(L.ActiveMoves));
+                    ValuePair(L.Nature, entry.Nature?.Name(Language) ?? "—"))));
+            if (entry.Prayers is { Count: > 0 } prayers)
+                section.Children.Add(Ui.VStack(2,
+                    Ui.Text(L.PrayerBornWith((int)Math.Min(prayers.Count, int.MaxValue)), Theme.FontSize.Callout),
+                    Ui.Text(L.PrayerReachedHeaven, Theme.FontSize.Caption2, Theme.Keys.Secondary).Wrapping()));
+            section.Children.Add(Ui.VStack(1, Ui.Text(L.Ability, Theme.FontSize.Subheadline, Theme.Keys.Secondary), abilityValue));
+            section.Children.Add(StatsSection(PokemonStatCalculator.Stats(details, profile, entry.Nature)));
+            section.Children.Add(Title(L.ActiveMoves));
             if (profile.Moves.Count == 0)
                 section.Children.Add(Ui.Text(L.NoLevelMoves, Theme.FontSize.Callout, Theme.Keys.Secondary).Wrapping());
             else

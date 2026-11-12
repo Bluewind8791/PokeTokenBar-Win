@@ -26,7 +26,7 @@ public class SaveFormatCompatibilityTests
          "ivs":{"hp":31,"attack":0,"defense":15,"specialAttack":7,"specialDefense":22,"speed":30},
          "abilitySlot":1,"abilityName":"anticipation","abilityIsHidden":false,"level":42,"growthTokens":1000000000,
          "moves":[{"name":"tackle","learnedAtLevel":1},{"name":"protect","learnedAtLevel":10}]},
-       "hasGrowthBoost":true,"dittoRevealed":false},
+       "hasGrowthBoost":true,"dittoRevealed":false,"prayers":{"count":3}},
      "representativeSpeciesID":3,
      "dex":[{"id":"A1B2C3D4-0000-4000-8000-000000000002","baseID":1,"finalID":3,"chainOrder":[1,2,3],"rarity":"common",
        "caughtAt":721692800.5,"isShiny":false,"nature":"adamant",
@@ -34,28 +34,29 @@ public class SaveFormatCompatibilityTests
          "ivs":{"hp":1,"attack":2,"defense":3,"specialAttack":4,"specialDefense":5,"speed":6},
          "abilityIsHidden":true,"level":100,"growthTokens":750000000,"moves":[]},
        "names":{"1":{"en":"Bulbasaur","ko":"이상해씨","ja-Hrkt":"フシギダネ"},"2":{"en":"Ivysaur"},"3":{"en":"Venusaur"}},
-       "namesVersion":1},
+       "namesVersion":1,"prayers":{"count":12}},
       {"id":"released-1","baseID":201,"finalID":201,"chainOrder":[201],"rarity":"uncommon","caughtAt":721699999,
        "isShiny":true,"form":"question","releasedAt":721699999}],
      "collectedFinals":["1:3","133:134"],"language":"ja",
      "inventory":{"rareCandy":3,"mint":1,"shinyCharm":1},
      "candyGrantTier":{"claude:seven_day":1},"candyWindowEpoch":{"claude:seven_day":"2026-11-10T00:00:00Z"},
-     "candyFeatureSeeded":true}
+     "candyFeatureSeeded":true,"notifiedDexCompletions":["kanto","johto"],"dexCompletionsSeeded":true}
     """;
 
     private static JsonNode Node(string json) => JsonNode.Parse(json)!;
 
     private static JsonNode Node(byte[] json) => JsonNode.Parse(json)!;
 
-    /// <summary>Set&lt;String&gt; has no order in Swift; compare collectedFinals as sorted arrays.</summary>
+    /// <summary>Set&lt;String&gt; has no order in Swift; compare collectedFinals and notifiedDexCompletions as sorted arrays.</summary>
     private static JsonNode Normalized(JsonNode node)
     {
         var copy = node.DeepClone();
         if (copy is not JsonObject obj) return copy;
         var state = obj["state"] ?? obj;
-        if (state["collectedFinals"] is JsonArray finals)
-            state["collectedFinals"] = new JsonArray(finals.Select(f => (string)f!).Order(StringComparer.Ordinal)
-                .Select(f => (JsonNode)JsonValue.Create(f)).ToArray());
+        foreach (var key in new[] { "collectedFinals", "notifiedDexCompletions" })
+            if (state[key] is JsonArray set)
+                state[key] = new JsonArray(set.Select(f => (string)f!).Order(StringComparer.Ordinal)
+                    .Select(f => (JsonNode)JsonValue.Create(f)).ToArray());
         return copy;
     }
 
@@ -124,7 +125,7 @@ public class SaveFormatCompatibilityTests
         var expected = Node("""
             {"installBaselineSet":false,"usedSinceInstall":0,"spentTokens":0,"eggUsage":0,"lastDate":"","dex":[],
              "collectedFinals":[],"language":"ko","inventory":{},"candyGrantTier":{},"candyWindowEpoch":{},
-             "candyFeatureSeeded":false}
+             "candyFeatureSeeded":false,"notifiedDexCompletions":[],"dexCompletionsSeeded":false}
             """);
         AssertSameJson(expected, json);
     }
@@ -152,6 +153,9 @@ public class SaveFormatCompatibilityTests
             25,
             26
           ],
+          "prayers" : {
+            "count" : 2
+          },
           "profile" : {
             "abilityIsHidden" : false,
             "growthTokens" : 12,
@@ -197,10 +201,14 @@ public class SaveFormatCompatibilityTests
             "finalID" : 3,
             "id" : "E1",
             "isShiny" : false,
+            "prayers" : {
+              "count" : 40
+            },
             "rarity" : "common",
             "releasedAt" : "2023-11-14T22:13:20Z"
           }
         ],
+        "dexCompletionsSeeded" : true,
         "eggUsage" : 0,
         "installBaselineSet" : true,
         "inventory" : {
@@ -208,6 +216,9 @@ public class SaveFormatCompatibilityTests
         },
         "language" : "en",
         "lastDate" : "2026-11-04",
+        "notifiedDexCompletions" : [
+          "kanto"
+        ],
         "spentTokens" : 0,
         "usedSinceInstall" : 9000000000
       }
@@ -228,6 +239,10 @@ public class SaveFormatCompatibilityTests
         Assert.Equal(Caught, s.Dex[0].CaughtAt);
         Assert.True(s.Dex[0].IsReleased);
         Assert.Equal(9_000_000_000, s.UsedSinceInstall);
+        Assert.Equal(new PrayerRecord(2), s.Active.Prayers);
+        Assert.Equal(new PrayerRecord(40), s.Dex[0].Prayers);
+        Assert.Equal(["kanto"], s.NotifiedDexCompletions);
+        Assert.True(s.DexCompletionsSeeded);
 
         // Windows writes the export the same way (ISO dates, same keys), so macOS can read it back.
         var reencoded = SaveTransfer.Encode(s, envelope.AppVersion, envelope.SourceDevice, envelope.ExportedAt);

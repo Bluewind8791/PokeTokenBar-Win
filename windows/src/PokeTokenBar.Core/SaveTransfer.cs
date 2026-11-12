@@ -178,7 +178,10 @@ public static class SaveTransfer
         {
             s.EggTier = null;
             s.PendingHatchID = null;
+            s.ResetEggPrayers();
         }
+        // Praying increments the count, so an absurd saved count must not overflow.
+        if (s.EggPrayers is { } prayers) s.EggPrayers = prayers with { Count = ClampToken(prayers.Count) };
         s.PendingForm = PokemonForm.ResolvedForLine(s.PendingHatchID ?? 0, s.PendingForm);
         // An unsatisfiable guarantee would keep the egg from ever hatching: legendary cannot be expressed by
         // capture_rate, so both roll paths find zero candidates and nothing ever consumes the guarantee.

@@ -169,16 +169,91 @@ public sealed class UsageStoreTests
         Assert.False(store.FloatingPetEnabled);
         Assert.Equal(96, store.FloatingPetSize);
         Assert.True(store.FloatingPetBubbleAlerts);
+        Assert.True(store.FloatingPetAgentActivity);   // inert until an agent hook sends a URL
 
         store.FloatingPetEnabled = true;
         store.FloatingPetSize = 144;
         store.FloatingPetBubbleAlerts = false;
+        store.FloatingPetAgentActivity = false;
 
         var reloaded = MakeStore([]);
         Assert.True(reloaded.FloatingPetEnabled);
         Assert.Equal(144, reloaded.FloatingPetSize);
         Assert.False(reloaded.FloatingPetBubbleAlerts);
+        Assert.False(reloaded.FloatingPetAgentActivity);
     }
+
+    /// <summary>Always facing back is a display preference: default off, persisted like the floating pet settings.</summary>
+    [Fact]
+    public void AlwaysFacesBackDefaultsOffAndPersists()
+    {
+        var store = MakeStore([Claude(1_000)]);
+        Assert.False(store.AlwaysFacesBack);
+        store.AlwaysFacesBack = true;
+        Assert.True(MakeStore([Claude(1_000)]).AlwaysFacesBack);   // persists across restarts
+    }
+
+    /// <summary>The store mirrors the preference into the companion with every update.</summary>
+    [Fact]
+    public void UpdateCompanionMirrorsAlwaysFacesBack() => MainActor.Run(async () =>
+    {
+        var store = MakeStore([Claude(1_000)]);
+        var companion = StateFiles.Store(Lines.NoEvo);
+        await companion.Hatch(20);
+        store.AlwaysFacesBack = true;
+        store.UpdateCompanion(companion);
+        Assert.True(companion.FacesBack);
+        store.AlwaysFacesBack = false;
+        store.UpdateCompanion(companion);
+        Assert.False(companion.FacesBack);
+    });
+
+    /// <summary>
+    /// Sulk input: unknown only before the first complete refresh; afterwards unreadable providers are ignored (not a
+    /// veto) and the newest <c>LastUsage</c> among the rest decides.
+    /// </summary>
+    [Fact]
+    public void TimeSinceLastUsageIsUnknownOnlyBeforeTheFirstRefresh() => MainActor.Run(async () =>
+    {
+        var now = DateTimeOffset.Now;
+        var older = Other("codex", 1);
+        var newer = Claude(1);
+        static ProviderEnrichment Enrichment(DateTimeOffset? lastUsage, bool periodsOK = true) => new()
+        {
+            BlocksOK = true, WeekTotal = new PeriodUsage("w", 1, 0), MonthTotal = new PeriodUsage("m", 1, 0),
+            MonthDaily = [TodayDaily(1)], PeriodsOK = periodsOK, LastUsage = lastUsage,
+        };
+        older.Enrichment = Enrichment(now.AddHours(-50));
+        newer.Enrichment = Enrichment(now.AddHours(-30));
+        var store = MakeStore([older, newer]);
+        Assert.Null(store.TimeSinceLastUsage(now));   // nothing scanned yet: unknown, never idle
+
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal(30 * 3600, store.TimeSinceLastUsage(now)!.Value.TotalSeconds, 0);
+
+        // The newer provider becomes unreadable: its carried-over time is ignored, the older one decides.
+        newer.Enrichment = Enrichment(null, periodsOK: false);
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal(50 * 3600, store.TimeSinceLastUsage(now)!.Value.TotalSeconds, 0);   // no veto
+
+        // One provider fails while the other reported 4 h ago: that is idle enough to sulk.
+        older.Enrichment = Enrichment(now.AddHours(-4));
+        await store.Refresh(scheduleEmptyRetry: false);
+        var idle = store.TimeSinceLastUsage(now)!.Value;
+        Assert.Equal(4 * 3600, idle.TotalSeconds, 0);
+        Assert.True(idle >= PokemonBalance.SulkAfterIdle);
+
+        // Every provider fails after the first refresh: nothing reports, so it is long idle.
+        older.Enrichment = Enrichment(null, periodsOK: false);
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal(LocalUsageReader.RecentUseWindow, store.TimeSinceLastUsage(now));
+
+        // A complete scan that found no usage at all means the same.
+        older.Enrichment = Enrichment(null);
+        newer.Enrichment = Enrichment(null);
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal(LocalUsageReader.RecentUseWindow, store.TimeSinceLastUsage(now));
+    });
 
     [Fact]
     public void BubbleAlertPicksHighestSeverityThenUtilization()
@@ -374,6 +449,69 @@ public sealed class UsageStoreTests
         Assert.Contains("Claude", store.MenuTitle);
     });
 
+    /// <summary>A plan without a 5-hour session limit, as oauth/usage sends it: <c>five_hour</c> is null and
+    /// <c>limits[]</c> has no session entry. <paramref name="fiveHour"/> adds a session window back.</summary>
+    private static LimitStatus ClaudeWeekly(double utilization, TimeSpan resetsIn, DateTimeOffset now, double? fiveHour = null)
+    {
+        var weeklyReset = Iso8601Parser.Format(now + resetsIn);
+        var session = fiveHour is { } f
+            ? $"{{\"utilization\":{f},\"resets_at\":\"{Iso8601Parser.Format(now + TimeSpan.FromHours(2.5))}\"}}"
+            : "null";
+        return LimitStatus.Decode(System.Text.Encoding.UTF8.GetBytes(
+            $"{{\"five_hour\":{session},\"seven_day\":{{\"utilization\":{utilization},\"resets_at\":\"{weeklyReset}\"}}," +
+            $"\"limits\":[{{\"kind\":\"weekly_all\",\"group\":\"weekly\",\"percent\":{utilization},\"resets_at\":\"{weeklyReset}\"}}]}}"));
+    }
+
+    /// <summary>Plans without a session limit (Ultra) send <c>five_hour: null</c>: the menu bar falls back to the
+    /// weekly window instead of dropping Claude, and the pace comes from the 7-day span (#464).</summary>
+    [Fact]
+    public void MenuShowsTheWeeklyLimitWhenThePlanHasNoSessionLimit() => MainActor.Run(async () =>
+    {
+        var now = DateTimeOffset.Now;
+        var store = MakeStore([Claude(1_000)], ClaudeWeekly(66, TimeSpan.FromDays(3.5), now));
+        store.ShowTokensInMenu = false;
+        store.ShowCostInMenu = false;
+        store.ShowLimitInMenu = true;
+        await store.Refresh(scheduleEmptyRetry: false);
+
+        var parts = store.MenuLimitParts(now);
+        Assert.Equal(["Claude 66%"], parts.Select(p => p.Text));
+        Assert.Equal(0.5, parts[0].Pace!.Value, 2);
+        Assert.Equal("Claude 66%", store.MenuTitle);
+
+        store.LimitDisplayMode = LimitPace.LimitDisplayMode.Remaining;
+        Assert.Equal(["Claude 34%"], store.MenuLimitParts(now).Select(p => p.Text));
+    });
+
+    /// <summary>With both windows, the menu bar keeps showing the 5-hour session.</summary>
+    [Fact]
+    public void MenuPrefersTheSessionLimitOverTheWeeklyOne() => MainActor.Run(async () =>
+    {
+        var now = DateTimeOffset.Now;
+        var store = MakeStore([Claude(1_000)], ClaudeWeekly(66, TimeSpan.FromDays(3.5), now, fiveHour: 40));
+        store.ShowTokensInMenu = false;
+        store.ShowCostInMenu = false;
+        store.ShowLimitInMenu = true;
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal(["Claude 40%"], store.MenuLimitParts(now).Select(p => p.Text));
+    });
+
+    [Fact]
+    public void HeadlineWindowPicksTheSessionThenTheWeeklyWindow()
+    {
+        var now = DateTimeOffset.Now;
+        var both = ClaudeWeekly(66, TimeSpan.FromHours(1), now, fiveHour: 40).HeadlineWindow!.Value;
+        Assert.Equal(40, both.Window.Utilization);
+        Assert.Equal(LimitWindowSpan.FiveHour, both.Span);
+
+        var weeklyOnly = ClaudeWeekly(66, TimeSpan.FromHours(1), now).HeadlineWindow!.Value;
+        Assert.Equal(66, weeklyOnly.Window.Utilization);
+        Assert.Equal(LimitWindowSpan.SevenDay, weeklyOnly.Span);
+
+        var empty = LimitStatus.Decode("{\"five_hour\":null,\"seven_day\":null}"u8);
+        Assert.Null(empty.HeadlineWindow);
+    }
+
     [Fact]
     public void MenuLinesStacksUsageAndLimitsSeparately() => MainActor.Run(async () =>
     {
@@ -433,6 +571,51 @@ public sealed class UsageStoreTests
     public void MenuLinesBeforeFirstRefreshShowADash()
     {
         Assert.Equal(["—"], MakeStore([]).MenuLines);
+    }
+
+    /// <summary>
+    /// Port of <c>testMenuLinesWithGrowthAllCombinations</c> (#388), Windows layout: every combination keeps the usage
+    /// and limit lines exactly as without growth, and the growth is its own last line. The tray tooltip is cut from
+    /// the end, so the growth is cut before the lines it was added next to (macOS joins it into the usage line to stay
+    /// within two menu-bar lines).
+    /// </summary>
+    [Fact]
+    public void MenuLinesWithGrowthAllCombinations() => MainActor.Run(async () =>
+    {
+        var store = MakeStore([Claude(1_200_000, 3.45)], ClaudeLimits(40, "2099-01-01T00:00:00Z"));
+        await store.Refresh(scheduleEmptyRetry: false);
+        var token = TokenFormatter.Compact(store.TodayTotalTokens);
+        var cost = store.TodayUsageCost.Text(new L(store.LocalizationLanguage), compact: true);
+        for (var mask = 0; mask < 16; mask++)
+        {
+            store.ShowTokensInMenu = (mask & 1) != 0;
+            store.ShowCostInMenu = (mask & 2) != 0;
+            store.ShowLimitInMenu = (mask & 4) != 0;
+            var growth = (mask & 8) != 0 ? "Growth 42%" : null;
+            var lines = store.MenuLinesWithGrowth(growth);
+            var expected = new List<string>();
+            if (store.ShowTokensInMenu) expected.Add(token);
+            if (store.ShowCostInMenu) expected.Add(cost);
+            if (store.ShowLimitInMenu) expected.Add("Claude 40%");
+            if (growth != null) expected.Add(growth);
+            Assert.Equal(expected, lines.SelectMany(l => l.Split(" · ")).ToList());
+            Assert.Equal(store.MenuLines.Concat(growth != null ? [growth] : Array.Empty<string>()), lines);
+            if (growth != null) Assert.Equal(growth, lines[^1]);
+        }
+    });
+
+    /// <summary>Port of <c>testGrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads</c>.</summary>
+    [Fact]
+    public void GrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads()
+    {
+        var store = MakeStore([]);
+        Assert.False(store.ShowGrowthInMenu);
+        Assert.Equal(["—"], store.MenuLines);
+        Assert.Equal(["Hatch 42%"], store.MenuLinesWithGrowth("Hatch 42%"));
+        store.ShowGrowthInMenu = true;
+        Assert.True(MakeStore([]).ShowGrowthInMenu);
+        store.ShowGrowthInMenu = false;
+        Assert.False(MakeStore([]).ShowGrowthInMenu);
     }
 
     // MARK: Limit display mode
@@ -1302,6 +1485,106 @@ public sealed class UsageStoreTests
         Assert.Equal("attention", _settings.GetString("menuLimitColorMode"));
         Assert.Equal(MenuLimitColorMode.Attention, MakeStore([]).MenuLimitColorMode);
     }
+
+    // MARK: Daily trend window (#430)
+
+    private static DailyUsage Usage(string date, long tokens) => new(date, 0, tokens, 0, 0, tokens, 0);
+
+    [Fact]
+    public void DailyTrendWindowDefaultsTo14DaysAndPersists()
+    {
+        var store = MakeStore([]);
+        Assert.Equal(DailyTrendWindow.D14, store.DailyTrendWindow);
+
+        store.DailyTrendWindow = DailyTrendWindow.D7;
+        Assert.Equal(DailyTrendWindow.D7, store.DailyTrendWindow);
+        Assert.Equal("7d", _settings.GetString("dailyTrendWindow"));
+        Assert.Equal(DailyTrendWindow.D7, MakeStore([]).DailyTrendWindow);
+    }
+
+    [Fact]
+    public void DailyTrendTotalsFollowsActiveWindow() => MainActor.Run(async () =>
+    {
+        var fake = Claude(100);
+        fake.Enrichment = new ProviderEnrichment
+        {
+            RecentDaily = [Usage("2026-10-15", 100)],
+            MonthDaily = [Usage("2026-10-01", 500)],
+            PeriodsOK = true,
+        };
+        var store = MakeStore([fake]);
+        await store.Refresh(scheduleEmptyRetry: false);
+
+        store.DailyTrendWindow = DailyTrendWindow.D14;
+        Assert.Equal(100, store.DailyTrendTotals[0].TotalTokens);
+
+        store.DailyTrendWindow = DailyTrendWindow.Month;
+        Assert.Equal(500, store.DailyTrendTotals[0].TotalTokens);
+    });
+
+    /// <summary>Each rolling window is the tail of the 21-day series; without one, the tail of the month series.</summary>
+    [Fact]
+    public void RollingTotalsTakeTheTailOfTheRecentSeriesAndFallBackToTheMonth() => MainActor.Run(async () =>
+    {
+        var recent = Enumerable.Range(-20, 21).Select(d => Usage(DayKey(d), 21 + d)).ToList();   // 1…21 tokens
+        var withRecent = Claude(21);
+        withRecent.Enrichment = Periods(1, 1) with { RecentDaily = recent };
+        var store = MakeStore([withRecent]);
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal(Enumerable.Range(15, 7).Select(t => (long)t), store.DailyTrendTotalsFor(DailyTrendWindow.D7).Select(d => d.TotalTokens));
+        Assert.Equal(14, store.DailyTrendTotalsFor(DailyTrendWindow.D14).Count);
+        Assert.Equal(21, store.DailyTrendTotalsFor(DailyTrendWindow.D21).Count);
+
+        var monthOnly = Other("future_tool", 9);
+        monthOnly.Enrichment = Periods(1, 1, monthDaily: [Usage(DayKey(-8), 7), Usage(DayKey(-1), 8), TodayDaily(9)]);
+        var fallback = MakeStore([monthOnly]);
+        await fallback.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal([7L, 8L, 9L], fallback.DailyTrendTotalsFor(DailyTrendWindow.D14).Select(d => d.TotalTokens));
+        Assert.Equal([8L, 9L], fallback.RollingDailyTotals(2).Select(d => d.TotalTokens));
+    });
+
+    /// <summary>A failed enrichment keeps the previous rolling series, like the month series (phase-1 carry-over).</summary>
+    [Fact]
+    public void RecentDailySurvivesAFailedEnrichment() => MainActor.Run(async () =>
+    {
+        var provider = Claude(5);
+        provider.Enrichment = Periods(5, 5, monthDaily: [TodayDaily(5)]) with
+        {
+            RecentDaily = [Usage(DayKey(-15), 40), TodayDaily(5)],
+        };
+        var store = MakeStore([provider]);
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal([40L, 5L], store.DailyTrendTotalsFor(DailyTrendWindow.D21).Select(d => d.TotalTokens));
+
+        provider.Enrichment = new ProviderEnrichment();   // failed read
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Equal([40L, 5L], store.DailyTrendTotalsFor(DailyTrendWindow.D21).Select(d => d.TotalTokens));
+    });
+
+    /// <summary>
+    /// Used 15 days ago, across a month boundary: no week/month total and no use within 7 days, so only the rolling
+    /// series keeps the provider (and its 14/21-day trend) on screen.
+    /// </summary>
+    [Fact]
+    public void RecentDailyAloneKeepsTheProviderAndItsTrendHistory() => MainActor.Run(async () =>
+    {
+        var provider = Other("future_tool", null);
+        provider.Enrichment = Periods(0, 0, monthDaily: [TodayDaily(0)]) with
+        {
+            RecentDaily = [Usage(DayKey(-15), 40), TodayDaily(0)],
+        };
+        var store = MakeStore([provider]);
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Contains(store.Snapshots, snap => snap.ProviderID == "future_tool");
+        Assert.True(store.HasDailyTrendHistory);
+        Assert.Equal(40, store.DailyTrendTotalsFor(DailyTrendWindow.D21).Sum(d => d.TotalTokens));
+        Assert.Equal(0, store.DailyTrendTotalsFor(DailyTrendWindow.Month).Sum(d => d.TotalTokens));
+
+        provider.Enrichment = Periods(0, 0, monthDaily: [TodayDaily(0)]) with { RecentDaily = [TodayDaily(0)] };
+        await store.Refresh(scheduleEmptyRetry: false);
+        Assert.Empty(store.Snapshots);
+        Assert.False(store.HasDailyTrendHistory);
+    });
 
     // MARK: Windows seams
 

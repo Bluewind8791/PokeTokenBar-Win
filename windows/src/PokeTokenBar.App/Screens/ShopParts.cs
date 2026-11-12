@@ -215,13 +215,21 @@ public static class EmojiImages
     private static readonly System.Net.Http.HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
     private static readonly Dictionary<string, System.Windows.Media.Imaging.BitmapSource> Memory = new();
 
-    /// <summary>Fluent Emoji asset folder per fallback emoji (CompanionModel <c>FallbackEmoji</c>).</summary>
+    /// <summary>Fluent Emoji asset folder per fallback emoji (CompanionModel <c>FallbackEmoji</c>) and per Pokédex
+    /// completion medal (<c>RegionTally</c>, <c>DexBadgeMedal</c>), and the floating egg's prayer particle.</summary>
     private static readonly Dictionary<string, string> Assets = new()
     {
         ["🌿"] = "Herb",
         ["🍬"] = "Candy",
         ["✨"] = "Sparkles",
+        ["🏅"] = "Sports medal",
+        ["🔤"] = "Input latin letters",
+        ["🌍"] = "Globe showing europe-africa",
+        ["🙏"] = "Folded hands",
     };
+
+    /// <summary>Assets with skin tones keep each tone in its own folder; the default (yellow) one is used.</summary>
+    private static readonly HashSet<string> SkinToneAssets = ["Folded hands"];
 
     public static FrameworkElement View(string emoji, double size)
     {
@@ -258,7 +266,9 @@ public static class EmojiImages
             if (System.IO.File.Exists(file)) bytes = await System.IO.File.ReadAllBytesAsync(file);
             else
             {
-                bytes = await Http.GetByteArrayAsync($"{Base}/{Uri.EscapeDataString(asset)}/3D/{slug}_3d.png");
+                bytes = await Http.GetByteArrayAsync(SkinToneAssets.Contains(asset)
+                    ? $"{Base}/{Uri.EscapeDataString(asset)}/Default/3D/{slug}_3d_default.png"
+                    : $"{Base}/{Uri.EscapeDataString(asset)}/3D/{slug}_3d.png");
                 // Atomic write (unique temp name: two cards may fetch the same emoji at once).
                 var tmp = $"{file}.{Guid.NewGuid():N}.tmp";
                 await System.IO.File.WriteAllBytesAsync(tmp, bytes);

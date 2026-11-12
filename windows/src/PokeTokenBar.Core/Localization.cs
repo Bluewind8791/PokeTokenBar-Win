@@ -101,8 +101,44 @@ public sealed partial class L
     /// de is shortened to "Täglich" because the full phrase wraps the caption; the line above already says "Dieser Monat".
     /// </summary>
     public string DailyTrend => T("이번 달 일별", "Daily this month", "今月の日別", "Diario de este mes", "Par jour ce mois-ci", "Diário deste mês", "Täglich", "По дням");
+    public string DailyTrendPeriod => T(
+        "일별 추이 기간",
+        "Daily trend period",
+        "日別推移の期間",
+        "Período de tendencia diaria",
+        "Période de tendance quotidienne",
+        "Período de tendência diária",
+        "Täglicher Trendzeitraum",
+        "Период тренда");
+    public string DailyTrend7d => T("최근 7일", "Last 7 days", "直近7日", "Últimos 7 días", "7 derniers jours", "Últimos 7 dias", "Letzte 7 Tage", "За 7 дней");
+    public string DailyTrend14d => T("최근 14일", "Last 14 days", "直近14日", "Últimos 14 días", "14 derniers jours", "Últimos 14 dias", "Letzte 14 Tage", "За 14 дней");
+    public string DailyTrend21d => T("최근 21일", "Last 21 days", "直近21日", "Últimos 21 días", "21 derniers jours", "Últimos 21 dias", "Letzte 21 Tage", "За 21 день");
+    public string DailyTrendMonth => T("이번 달", "This month", "今月", "Este mes", "Ce mois-ci", "Este mês", "Dieser Monat", "Этот месяц");
+
+    public string Title(DailyTrendWindow window) => window switch
+    {
+        DailyTrendWindow.D7 => DailyTrend7d,
+        DailyTrendWindow.D14 => DailyTrend14d,
+        DailyTrendWindow.D21 => DailyTrend21d,
+        DailyTrendWindow.Month => DailyTrendMonth,
+        _ => throw new ArgumentOutOfRangeException(nameof(window), window, null),
+    };
     /// <summary>Peak label of the trend: bar heights are relative, so one absolute value must be shown.</summary>
     public string PeakDay => T("최다", "Peak", "最多", "Máx.", "Max.", "Máx.", "Max.", "Макс.");
+    /// <summary>
+    /// Title of the 16-week grid. Kept shorter than the bars' title: the caption line also holds the readout (date,
+    /// tokens, cost) and the peak. The number matches <c>ActivityHeatmapMetrics.Weeks</c> (checked by a test).
+    /// </summary>
+    public string RecentHeatmap => T(
+        "최근 16주", "16 weeks", "16週間", "16 semanas", "16 semaines", "16 semanas", "16 Wochen",
+        "16 недель");
+    /// <summary>Tooltip saying a click switches the activity view. Click-to-cycle is hard to discover; the page dots
+    /// and this tooltip are the only clues.</summary>
+    public string ActivitySwitchHint => T(
+        "클릭해서 다른 표시로 전환", "Click to switch the view", "クリックで表示を切り替え",
+        "Haz clic para cambiar la vista", "Cliquez pour changer d'affichage",
+        "Clique para alternar a exibição", "Zum Wechseln der Ansicht klicken",
+        "Нажмите, чтобы сменить вид");
 
     // MARK: Limits section
     public string LimitsOfficial => T(
@@ -404,6 +440,32 @@ public sealed partial class L
     public string RecapBestDay => T("최고의 날", "Best day", "最高の日", "Mejor día", "Meilleur jour", "Melhor dia", "Bester Tag", "Лучший день");
     public string RecapActiveDays => T("활동한 날", "Active days", "稼働日", "Días activos", "Jours actifs", "Dias ativos", "Aktive Tage", "Активных дней");
     public string RecapBestStreak => T("최장 연속", "Best streak", "最長連続", "Mejor racha", "Meilleure série", "Melhor sequência", "Beste Serie", "Лучшая серия");
+    /// <summary>
+    /// Current-streak badge tooltip. The number sits inside the sentence, so word order is left to
+    /// each language.
+    /// </summary>
+    public string StreakDays(int count) => T(
+        $"{count}일 연속 사용",
+        $"{count}-day streak",
+        $"{count}日連続",
+        $"Racha de {count} días",
+        $"Série de {count} jours",
+        $"{count} dias seguidos",
+        $"{count} Tage in Folge",
+        $"{count} дн. подряд");
+    /// <summary>
+    /// The same while today has no usage yet: the run is intact but ends yesterday. Says what keeps
+    /// it going instead of implying it is already lost.
+    /// </summary>
+    public string StreakDaysPending(int count) => T(
+        $"{count}일 연속 — 오늘 사용하면 이어집니다",
+        $"{count}-day streak — use it today to keep it going",
+        $"{count}日連続 — 今日使えば続きます",
+        $"Racha de {count} días: úsalo hoy para mantenerla",
+        $"Série de {count} jours — utilisez-le aujourd'hui pour la garder",
+        $"{count} dias seguidos — use hoje para manter",
+        $"{count} Tage in Folge – heute nutzen, um sie zu halten",
+        $"{count} дн. подряд — используйте сегодня, чтобы не прервать");
     public string RecapGraduates => T("졸업", "Graduated", "卒業", "Graduados", "Diplômés", "Formados", "Abschlüsse", "Выпускники");
     public string RecapNoData => T("기록 없음", "no data", "記録なし", "sin datos", "pas de données", "sem dados", "keine Daten", "нет данных");
     public string RecapDays(int count) => T($"{count}일", $"{count}d", $"{count}日", $"{count} d", $"{count} j", $"{count} d", $"{count} T", $"{count} дн.");
@@ -488,6 +550,48 @@ public sealed partial class L
         "Heutige Kosten ($)",
         "Стоимость за сегодня ($)");
     public string LimitPercent => T("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %", "Limit %", "Лимит, %");
+    public string PokemonGrowthPercent => T(
+        "포켓몬 성장률",
+        "Pokémon growth %",
+        "ポケモンの成長率",
+        "Crecimiento del Pokémon %",
+        "Croissance du Pokémon %",
+        "Crescimento do Pokémon %",
+        "Pokémon-Wachstum %",
+        "Рост покемона, %");
+    public string PokemonGrowthPercentHint => T(
+        "키우는 알의 부화 또는 포켓몬의 다음 진화·졸업 진행률",
+        "Progress toward hatching or your companion's next evolution or graduation",
+        "育てているタマゴの孵化、またはポケモンの次の進化・卒業までの進捗",
+        "Progreso hasta la eclosión o la próxima evolución o graduación de tu compañero",
+        "Progression vers l'éclosion ou la prochaine évolution ou le diplôme de ton compagnon",
+        "Progresso até a eclosão ou a próxima evolução ou formatura do seu companheiro",
+        "Fortschritt bis zum Schlüpfen oder zur nächsten Entwicklung oder zum Abschied deines Begleiters",
+        "Прогресс до вылупления, следующей эволюции или выпуска вашего покемона");
+    public string MenuGrowthProgress(int percent, bool isEgg)
+    {
+        if (isEgg)
+        {
+            return T(
+                $"부화 {percent}%",
+                $"Hatch {percent}%",
+                $"孵化 {percent}%",
+                $"Eclosión {percent}%",
+                $"Éclosion {percent}%",
+                $"Eclosão {percent}%",
+                $"Schlüpfen {percent}%",
+                $"Вылупление {percent}%");
+        }
+        return T(
+                $"성장 {percent}%",
+                $"Growth {percent}%",
+                $"成長 {percent}%",
+                $"Crecimiento {percent}%",
+                $"Croissance {percent}%",
+                $"Crescimento {percent}%",
+                $"Wachstum {percent}%",
+                $"Рост {percent}%");
+    }
     public string MenuLimitColor => T(
         "퍼센트 색상",
         "Percent color",
@@ -694,6 +798,15 @@ public sealed partial class L
         "Desativar mascote flutuante",
         "Schwebendes Pokémon ausschalten",
         "Выключить питомца на экране");
+    public string FloatingPetHeartsLabel => T(
+        "펫이 기분 좋아해요",
+        "Your pet is happy",
+        "ペットが喜んでいます",
+        "Tu mascota está feliz",
+        "Votre compagnon est content",
+        "Seu mascote está feliz",
+        "Dein Pokémon freut sich",
+        "Питомцу приятно");
     public string FloatingPetHoverTokensOnly(string tokens) => T(
         $"오늘 {tokens} 토큰",
         $"Today: {tokens} tokens",
@@ -703,6 +816,26 @@ public sealed partial class L
         $"Hoje: {tokens} tokens",
         $"Heute: {tokens} Tokens",
         $"Токенов сегодня: {tokens}");
+    /// <summary>Sulking for `hours` (3...47) — below that the companion is not sulking yet.</summary>
+    public string FloatingPetHoverSulkHours(int hours) => T(
+        $"{hours}시간째 삐져 있어요",
+        $"Sulking for {hours} hours",
+        $"{hours}時間ずっと拗ねています",
+        $"Enfurruñado desde hace {hours} horas",
+        $"Boude depuis {hours} heures",
+        $"Emburrado há {hours} horas",
+        $"Schmollt seit {hours} Stunden",
+        $"Обижен уже {hours} ч.");
+    /// <summary>Sulking for `days` (2 or more).</summary>
+    public string FloatingPetHoverSulkDays(int days) => T(
+        $"{days}일째 삐져 있어요",
+        $"Sulking for {days} days",
+        $"{days}日連続で拗ねています",
+        $"Enfurruñado desde hace {days} días",
+        $"Boude depuis {days} jours",
+        $"Emburrado há {days} dias",
+        $"Schmollt seit {days} Tagen",
+        $"Обижен уже {days} дн.");
     public string FloatingPetHoverWithLimit(string tokens, string percent) => T(
         $"오늘 {tokens} 토큰 (한도 {percent})",
         $"Today: {tokens} tokens (limit {percent})",
@@ -712,6 +845,56 @@ public sealed partial class L
         $"Hoje: {tokens} tokens (limite {percent})",
         $"Heute: {tokens} Tokens (Limit {percent})",
         $"Токенов сегодня: {tokens} (лимит {percent})");
+    public string FloatingPetAgentActivityLabel => T(
+        "에이전트 활동에 반응",
+        "React to agent activity",
+        "エージェントの動きに反応",
+        "Reaccionar a la actividad del agente",
+        "Réagir à l’activité de l’agent",
+        "Reagir à atividade do agente",
+        "Auf Agent-Aktivität reagieren",
+        "Реагировать на работу агента");
+    public string FloatingPetAgentActivityHint => T(
+        "코딩 에이전트가 poketokenbar:// 링크로 펫을 움직여요 — README 참고",
+        "Coding agents trigger it with poketokenbar:// links — see the README",
+        "コーディングエージェントが poketokenbar:// リンクで動かします — README 参照",
+        "Los agentes de código lo activan con enlaces poketokenbar:// — consulta el README",
+        "Les agents de code le pilotent via des liens poketokenbar:// — voir le README",
+        "Agentes de código o acionam com links poketokenbar:// — veja o README",
+        "Coding-Agents steuern es über poketokenbar://-Links – siehe README",
+        "Агенты управляют питомцем через ссылки poketokenbar:// — см. README");
+    public string AgentWaitingTitle => T(
+        "에이전트가 기다려요",
+        "Your agent needs you",
+        "エージェントが呼んでいます",
+        "Tu agente te necesita",
+        "Ton agent a besoin de toi",
+        "Seu agente precisa de você",
+        "Dein Agent braucht dich",
+        "Агент ждёт вас");
+    public string AgentWaitingDefaultBody => T(
+        "입력을 기다리고 있어요.",
+        "It's waiting for your input.",
+        "入力を待っています。",
+        "Está esperando tu respuesta.",
+        "Il attend ta réponse.",
+        "Está aguardando sua resposta.",
+        "Er wartet auf deine Eingabe.",
+        "Он ждёт вашего ответа.");
+    public string AgentDoneTitle => T("완료!", "Done!", "完了！", "¡Listo!", "Terminé !", "Pronto!", "Fertig!", "Готово!");
+    /// <summary>After an agent's label in the bubble title: "<label> · waiting".</summary>
+    public string AgentWaitingStatus => T("대기 중", "waiting", "待機中", "espera", "attend", "aguarda", "wartet", "ждёт");
+    public string AgentDoneStatus => T("완료", "done", "完了", "listo", "terminé", "pronto", "fertig", "готово");
+
+    public string AgentDoneDefaultBody => T(
+        "에이전트가 작업을 마쳤어요.",
+        "Your agent finished its task.",
+        "エージェントの作業が終わりました。",
+        "Tu agente terminó su tarea.",
+        "Ton agent a terminé sa tâche.",
+        "Seu agente concluiu a tarefa.",
+        "Dein Agent ist fertig.",
+        "Агент завершил задачу.");
 
     public string DisableKeychain => T(
         "Keychain 접근 끄기",
@@ -758,6 +941,15 @@ public sealed partial class L
         "Abrir ao iniciar sessão",
         "Bei der Anmeldung starten",
         "Запускать при входе в систему");
+    public string LaunchAtLoginApprovalHint => T(
+        "자동 시작을 켜려면 시스템 설정에서 PokeTokenBar를 허용하세요.",
+        "Allow PokeTokenBar in System Settings to launch at login.",
+        "ログイン時に起動するには、システム設定で PokeTokenBar を許可してください。",
+        "Permite PokeTokenBar en Ajustes del Sistema para abrirlo al iniciar sesión.",
+        "Autorisez PokeTokenBar dans Réglages Système pour l’ouvrir à la connexion.",
+        "Permita o PokeTokenBar nos Ajustes do Sistema para abri-lo ao iniciar sessão.",
+        "Erlaube PokeTokenBar in den Systemeinstellungen, damit es bei der Anmeldung startet.",
+        "Разрешите PokeTokenBar в Системных настройках, чтобы запускать его при входе.");
     public string BundledOnly => T(
         ".app 번들로 설치된 경우에만 사용 가능 (scripts/build-app.sh)",
         "Available only when installed as an .app bundle (scripts/build-app.sh)",
@@ -958,6 +1150,24 @@ public sealed partial class L
         "Base de cálculo: totalTokens (input + output + cache, data local)",
         "Token-Grundlage: totalTokens (input + output + cache, lokales Datum)",
         "Подсчёт токенов: totalTokens (ввод + вывод + кэш, по местной дате)");
+    public string TrackedProvidersSectionTitle => T(
+        "추적할 프로바이더",
+        "Tracked providers",
+        "集計するプロバイダー",
+        "Proveedores rastreados",
+        "Fournisseurs suivis",
+        "Provedores monitorados",
+        "Erfasste Anbieter",
+        "Отслеживаемые провайдеры");
+    public string TrackedProvidersHint => T(
+        "끈 프로바이더는 로그를 읽지 않아요. 탭·합계·포켓몬 성장·한도에서 빠져요.",
+        "Turned-off providers are not read. They are excluded from tabs, totals, Pokémon growth, and limits.",
+        "オフにしたプロバイダーのログは読みません。タブ・合計・ポケモンの成長・上限から外れます。",
+        "Los proveedores desactivados no se leen. Dejan de aparecer en pestañas, totales, crecimiento del Pokémon y límites.",
+        "Les fournisseurs désactivés ne sont pas lus. Ils disparaissent des onglets, des totaux, de la croissance du Pokémon et des limites.",
+        "Provedores desativados não são lidos. Eles saem das abas, dos totais, do crescimento do Pokémon e dos limites.",
+        "Deaktivierte Anbieter werden nicht gelesen. Sie fehlen in Tabs, Summen, Pokémon-Wachstum und Limits.",
+        "Отключённые провайдеры не читаются. Они пропадают из вкладок, итогов, роста покемона и лимитов.");
     public string CustomScanProviderLabel => T("프로바이더", "Provider", "プロバイダー", "Proveedor", "Fournisseur", "Provedor", "Anbieter", "Провайдер");
     public string CustomScanRootsLabel => T(
         "추가 스캔 폴더",
@@ -1780,6 +1990,25 @@ public sealed partial class L
         "Agora está dormindo.",
         "Schläft gerade.",
         "Сейчас спит.");
+    public string BackViewHint => T(
+        "메뉴바·플로팅 펫·팝오버에서 항상 뒷모습으로 보여요",
+        "Always shows its back in the menu bar, floating pet and popover",
+        "メニューバー・フローティングペット・ポップオーバーで常に後ろ姿になります",
+        "Siempre se muestra de espaldas en la barra de menús, la mascota flotante y el popover",
+        "Toujours de dos dans la barre des menus, le compagnon flottant et le popover",
+        "Sempre de costas na barra de menus, no mascote flutuante e no popover",
+        "Zeigt in Menüleiste, schwebendem Pokémon und Popover immer den Rücken",
+        "Всегда показывает спину в строке меню, на экране и во всплывающем окне");
+    public string BackViewLabel => T("뒷모습 보기", "Show back view", "後ろ姿を見る", "Ver de espaldas", "Voir de dos", "Ver de costas", "Rückansicht zeigen", "Показывать спину");
+    public string StatusSulk => T(
+        "삐져서 등을 돌리고 있어요.",
+        "Sulking with its back turned.",
+        "拗ねて背を向けています。",
+        "Está de espaldas, enfurruñado.",
+        "Boude, le dos tourné.",
+        "Está de costas, emburrado.",
+        "Schmollt mit dem Rücken zu dir.",
+        "Обиделся и отвернулся.");
     public string StatusEvolved(string name) => T(
         $"{KoreanParticle.Direction.Attach(name)} 진화했어요!",
         $"Evolved into {name}!",
@@ -1821,6 +2050,203 @@ public sealed partial class L
         $"Nasceu um {name} shiny! (1 em {odds})",
         $"Ein schillerndes {name} ist geschlüpft! (1/{odds})",
         $"Вылупился шайни {name}! (шанс 1 к {odds})");
+    // MARK: Egg prayers (a placebo button)
+    public string PrayerBornWith(int n) => T(
+        $"기도 {n}번 받고 태어남",
+        $"Born after {n} prayers",
+        $"お祈り{n}回を受けて誕生",
+        $"Nació tras {n} oraciones",
+        $"Né après {n} prières",
+        $"Nasceu após {n} orações",
+        $"Geboren nach {n} Gebeten",
+        $"Родился после {n} молитв");
+    public string PrayerReachedHeaven => T(
+        "기도가 하늘에 닿았어요. 아마도요.",
+        "Your prayers reached the heavens. Probably.",
+        "祈りは天に届きました。たぶん。",
+        "Tus plegarias llegaron al cielo. Probablemente.",
+        "Tes prières sont montées jusqu'au ciel. Probablement.",
+        "Suas preces chegaram aos céus. Provavelmente.",
+        "Deine Gebete haben den Himmel erreicht. Vermutlich.",
+        "Молитвы дошли до небес. Наверное.");
+
+    /// <summary>Prayers per quip (and per usage refresh): the joke advances every 30 prayers.</summary>
+    public const int PrayersPerQuip = 30;
+    public const int PrayerQuipCount = 11;
+
+    /// <summary>Index into the ordered quip list: <c>count / 30</c>, capped at the last one. Null at 0 prayers (nothing to say yet).</summary>
+    public static int? PrayerQuipIndex(long prayers)
+    {
+        if (prayers <= 0) return null;
+        return (int)Math.Min(prayers / PrayersPerQuip, PrayerQuipCount - 1);
+    }
+
+    /// <summary>Floating-pet hover line: "{n} prayers · {quip}".</summary>
+    public string PrayerHoverLine(long n)
+    {
+        if (n <= 0) return "";
+        var count = n == 1
+            ? T("기도 1회", "1 prayer", "お祈り1回", "1 oración", "1 prière", "1 oração", "1 Gebet", "Молитв: 1")
+            : T($"기도 {n}회", $"{n} prayers", $"お祈り{n}回", $"{n} oraciones", $"{n} prières", $"{n} orações", $"{n} Gebete", $"Молитв: {n}");
+        return count + " · " + PrayerQuip(n);
+    }
+
+    public string PrayerQuip(long n) => (PrayerQuipIndex(n) ?? 0) switch
+    {
+        0 => T("일단 한번 빌어봄", "just trying it out", "とりあえず祈ってみた", "probando a ver qué pasa", "juste pour essayer", "só para testar", "einfach mal ausprobiert", "просто попробовали"),
+        1 => T(
+                "하늘이 아직 확인 안 함",
+                "heaven hasn't checked yet",
+                "天国はまだ確認していない",
+                "el cielo aún no lo ha revisado",
+                "le ciel n'a pas encore regardé",
+                "o céu ainda não conferiu",
+                "der Himmel hat noch nicht nachgesehen",
+                "небеса ещё не проверили"),
+        2 => T(
+                "알이 살짝 부담스러워함",
+                "the egg feels a little pressured",
+                "タマゴがちょっとプレッシャーを感じてる",
+                "el huevo siente algo de presión",
+                "l'œuf se sent un peu sous pression",
+                "o ovo está sentindo a pressão",
+                "dem Ei wird das langsam zu viel Druck",
+                "яйцу слегка не по себе"),
+        3 => T(
+                "손 모으는 자세가 제법 프로",
+                "your praying form is getting pro",
+                "手を合わせるフォームが様になってきた",
+                "ya rezas con técnica de profesional",
+                "ta technique de prière devient pro",
+                "sua pose de oração já está profissional",
+                "deine Gebetshaltung wird professionell",
+                "молитвенная стойка уже как у профи"),
+        4 => T(
+                "하늘 서버 응답 지연 중",
+                "heaven's servers are lagging",
+                "天国のサーバーが応答遅延中",
+                "los servidores del cielo van con lag",
+                "les serveurs du ciel rament",
+                "os servidores do céu estão com lag",
+                "die Server des Himmels laggen",
+                "серверы небес лагают"),
+        5 => T(
+                "하늘 대기열 3,812번째",
+                "you're #3,812 in heaven's queue",
+                "天国の順番待ち3,812番目",
+                "eres el n.º 3.812 en la cola del cielo",
+                "tu es n° 3 812 dans la file du ciel",
+                "você é o nº 3.812 na fila do céu",
+                "du bist Nr. 3.812 in der Warteschlange des Himmels",
+                "вы 3 812-й в очереди небес"),
+        6 => T(
+                "손바닥이 닳는 중",
+                "your palms are wearing thin",
+                "手のひらがすり減ってきた",
+                "las palmas de tus manos se desgastan",
+                "tes paumes s'usent",
+                "suas palmas estão se desgastando",
+                "deine Handflächen werden dünn",
+                "ладони понемногу стираются"),
+        7 => T(
+                "이쯤 되면 알도 같이 빌어줌",
+                "at this point the egg is praying with you",
+                "ここまで来るとタマゴも一緒に祈ってる",
+                "a estas alturas el huevo reza contigo",
+                "à ce stade, l'œuf prie avec toi",
+                "a essa altura o ovo reza junto",
+                "mittlerweile betet das Ei mit",
+                "теперь яйцо молится вместе с вами"),
+        8 => T(
+                "하늘: \"접수했습니다. 검토 후 답변드릴게요\"",
+                "heaven: \"received, we'll get back to you\"",
+                "天国「受け付けました。確認後ご連絡します」",
+                "el cielo: «recibido, le responderemos»",
+                "le ciel : « bien reçu, nous revenons vers vous »",
+                "o céu: \"recebido, retornaremos o contato\"",
+                "Himmel: „Eingegangen, wir melden uns bei Ihnen“",
+                "небеса: «заявка принята, мы с вами свяжемся»"),
+        9 => T(
+                "알이 방금 \"그만…\"이라고 한 것 같음",
+                "the egg just whispered \"please stop\"",
+                "タマゴが今「やめて…」ってささやいた気がする",
+                "creo que el huevo acaba de susurrar «para…»",
+                "l'œuf vient de murmurer « arrête… »",
+                "o ovo acabou de sussurrar \"para…\"",
+                "das Ei hat gerade „hör auf…“ geflüstert",
+                "яйцо только что прошептало «хватит…»"),
+        _ => T(
+                "전설 나오면 이건 실력임",
+                "if a legendary hatches, that's pure skill",
+                "伝説が出たらそれは実力",
+                "si sale un legendario, es pura habilidad",
+                "si un légendaire éclot, c'est du talent pur",
+                "se sair um lendário, é pura habilidade",
+                "schlüpft ein Legendäres, ist das reine Skill",
+                "вылупится легендарный — это чистый скилл"),
+    };
+
+    /// <summary>Hatch notification body once the egg was prayed over; the joke follows the outcome.</summary>
+    public string NotifPrayerHatchBody(string name, long n, bool shiny, Rarity rarity)
+    {
+        if (shiny && rarity == Rarity.Legendary)
+        {
+            return T(
+                $"기도 {n}번… 하늘이 진심이었다. 이로치 {name}!",
+                $"{n} prayers… heaven went all in. Shiny {name}!",
+                $"お祈り{n}回… 天も本気だった。色違いの{name}！",
+                $"¡{n} oraciones… el cielo fue con todo. {name} variocolor!",
+                $"{n} prières… le ciel a tout donné. {name} chromatique !",
+                $"{n} orações… o céu foi com tudo. {name} shiny!",
+                $"{n} Gebete… der Himmel hat alles gegeben. Schillerndes {name}!",
+                $"{n} молитв… небеса постарались на все сто. Шайни {name}!");
+        }
+        if (rarity == Rarity.Legendary)
+        {
+            return T(
+                $"기도 {n}번… 통했다?! {KoreanParticle.Subject.Attach(name)} 나왔어요!",
+                $"{n} prayers… it worked?! {name} hatched!",
+                $"お祈り{n}回… 通じた？！{name} が生まれました！",
+                $"{n} oraciones… ¿funcionó?! ¡Salió {name}!",
+                $"{n} prières… ça a marché ?! {name} est sorti !",
+                $"{n} orações… funcionou?! Saiu {name}!",
+                $"{n} Gebete… hat es gewirkt?! {name} ist geschlüpft!",
+                $"{n} молитв… сработало?! Вылупился {name}!");
+        }
+        if (shiny)
+        {
+            return T(
+                $"기도 {n}번에 이로치까지?! {KoreanParticle.Subject.Attach(name)} 나왔어요!",
+                $"{n} prayers AND it's shiny?! {name} hatched!",
+                $"お祈り{n}回で色違いまで？！{name} が生まれました！",
+                $"¿{n} oraciones Y encima variocolor?! ¡Salió {name}!",
+                $"{n} prières ET en plus chromatique ?! {name} est sorti !",
+                $"{n} orações E ainda shiny?! Saiu {name}!",
+                $"{n} Gebete UND dann noch schillernd?! {name} ist geschlüpft!",
+                $"{n} молитв И ещё шайни?! Вылупился {name}!");
+        }
+        if (rarity == Rarity.Common)
+        {
+            return T(
+                $"기도 {n}번 끝에 {KoreanParticle.Subject.Attach(name)} 나왔어요. 하늘도 오늘 바빴나 봐요.",
+                $"{n} prayers later: {name}. Heaven must be swamped today.",
+                $"お祈り{n}回の末、{name} が生まれました。天国も今日は忙しかったみたい。",
+                $"Tras {n} oraciones: {name}. El cielo debe de andar saturado hoy.",
+                $"Après {n} prières : {name}. Le ciel doit être débordé aujourd'hui.",
+                $"Após {n} orações: {name}. O céu deve estar lotado hoje.",
+                $"Nach {n} Gebeten: {name}. Der Himmel hat heute wohl viel zu tun.",
+                $"После {n} молитв: {name}. У небес сегодня, видимо, много дел.");
+        }
+        return T(
+                $"기도 {n}번 끝에 {KoreanParticle.Subject.Attach(name)} 나왔어요. 반은 통한 걸로 칩시다.",
+                $"{n} prayers later: {name}. Let's call it half a miracle.",
+                $"お祈り{n}回の末、{name} が生まれました。半分は通じたってことにしよう。",
+                $"Tras {n} oraciones: {name}. Digamos que fue medio milagro.",
+                $"Après {n} prières : {name}. Disons que c'est un demi-miracle.",
+                $"Após {n} orações: {name}. Vamos chamar de meio milagre.",
+                $"Nach {n} Gebeten: {name}. Nennen wir es ein halbes Wunder.",
+                $"После {n} молитв: {name}. Считаем это половиной чуда.");
+    }
     public string EggImminent => T(
         "곧 부화해요!",
         "About to hatch!",
@@ -1844,15 +2270,16 @@ public sealed partial class L
         $"Wächst mit der Nutzung deiner lokalen KI-Coding-Tools. Nach etwa {amount} Tokens schlüpft dein Ei.",
         $"Растёт вместе с вашим локальным использованием ИИ для программирования. Яйцо вылупится примерно через {amount} токенов.");
     public string NotifEvolveTitle => T("✨ 진화!", "✨ Evolved!", "✨ 進化！", "✨ ¡Evolucionó!", "✨ Évolution !", "✨ Evoluiu!", "✨ Entwicklung!", "✨ Эволюция!");
-    public string NotifEvolveBody(string name) => T(
-        $"{KoreanParticle.Direction.Attach(name)} 진화했어요!",
-        $"Evolved into {name}!",
-        $"{name} に進化しました！",
-        $"¡Evolucionó a {name}!",
-        $"A évolué en {name} !",
-        $"Evoluiu para {name}!",
-        $"Hat sich zu {name} entwickelt!",
-        $"Эволюционировал в {name}!");
+    /// <summary>Both names, so the notification and the floating pet's hover line say who evolved into what.</summary>
+    public string NotifEvolveBody(string old, string @new) => T(
+        $"{KoreanParticle.Subject.Attach(old)} {KoreanParticle.Direction.Attach(@new)} 진화했어요!",
+        $"{old} evolved into {@new}!",
+        $"{old} が {@new} に進化しました！",
+        $"¡{old} evolucionó a {@new}!",
+        $"{old} a évolué en {@new} !",
+        $"{old} evoluiu para {@new}!",
+        $"{old} hat sich zu {@new} entwickelt!",
+        $"{old} эволюционировал в {@new}!");
     // Ditto disguise reveal: a Ditto cannot evolve, so it reveals itself at its first evolution.
     public string NotifDittoRevealTitle => T(
         "🎭 어라? 메타몽!",
@@ -1901,6 +2328,170 @@ public sealed partial class L
         $"{name} — guardado na sua Pokédex! Chegou um novo ovo.",
         $"{name} – in deinem Pokédex gespeichert! Ein neues Ei ist da.",
         $"{name} — запись в Покедексе! Появилось новое яйцо.");
+
+    // MARK: Generation (region) dex completion — region names, progress, completion notifications, badges
+    public string RegionName(PokedexRegion region) => region switch
+    {
+        PokedexRegion.Kanto => T("관동", "Kanto", "カントー", "Kanto", "Kanto", "Kanto", "Kanto", "Канто"),
+        PokedexRegion.Johto => T("성도", "Johto", "ジョウト", "Johto", "Johto", "Johto", "Johto", "Джото"),
+        PokedexRegion.Hoenn => T("호연", "Hoenn", "ホウエン", "Hoenn", "Hoenn", "Hoenn", "Hoenn", "Хоэнн"),
+        PokedexRegion.Sinnoh => T("신오", "Sinnoh", "シンオウ", "Sinnoh", "Sinnoh", "Sinnoh", "Sinnoh", "Синно"),
+        PokedexRegion.Unova => T("하나", "Unova", "イッシュ", "Teselia", "Unys", "Unova", "Einall", "Юнова"),
+        _ => throw new ArgumentOutOfRangeException(nameof(region), region, null),
+    };
+
+    /// <summary>Accessible label for a region filter chip, e.g. "Kanto 87/151".</summary>
+    public string DexRegionProgressLabel(PokedexRegion region, int owned, int total) => $"{RegionName(region)} {owned}/{total}";
+
+    public string DexNationalLabel => T("전국도감", "National Dex", "全国図鑑", "Pokédex Nacional", "Pokédex national", "Pokédex Nacional", "National-Dex", "Национальный Покедекс");
+
+    public string DexUnownLabel => T("안농 도감", "Unown collection", "アンノーン図鑑", "Colección Unown", "Collection Zarbi", "Coleção Unown", "Icognito-Sammlung", "Коллекция Анноун");
+
+    /// <summary>Help/tooltip text for an earned completion medal in the header strip.</summary>
+    public string DexBadgeLabel(DexBadge badge) => badge switch
+    {
+        { Kind: DexBadgeKind.Region, Region: { } r } => T(
+                $"{RegionName(r)} 도감 완성",
+                $"{RegionName(r)} Dex complete",
+                $"{RegionName(r)}図鑑コンプリート",
+                $"Pokédex de {RegionName(r)} completada",
+                $"Pokédex de {RegionName(r)} terminé",
+                $"Pokédex de {RegionName(r)} completa",
+                $"{RegionName(r)}-Dex komplett",
+                $"Покедекс {RegionName(r)} завершён"),
+        { Kind: DexBadgeKind.RegionShiny, Region: { } r } => T(
+                $"{RegionName(r)} 이로치 도감 완성",
+                $"Shiny {RegionName(r)} Dex complete",
+                $"{RegionName(r)} 色違い図鑑コンプリート",
+                $"Pokédex variocolor de {RegionName(r)} completada",
+                $"Pokédex chromatique de {RegionName(r)} terminé",
+                $"Pokédex shiny de {RegionName(r)} completa",
+                $"Schillernde {RegionName(r)}-Dex komplett",
+                $"Шайни-Покедекс {RegionName(r)} завершён"),
+        { Kind: DexBadgeKind.Unown } => T(
+                "안농 도감 완성",
+                "Unown collection complete",
+                "アンノーン図鑑コンプリート",
+                "Colección Unown completada",
+                "Collection Zarbi terminée",
+                "Coleção Unown completa",
+                "Icognito-Sammlung komplett",
+                "Коллекция Анноун завершена"),
+        { Kind: DexBadgeKind.National } => T(
+                "전국도감 완성",
+                "National Dex complete",
+                "全国図鑑コンプリート",
+                "Pokédex Nacional completada",
+                "Pokédex national terminé",
+                "Pokédex Nacional completa",
+                "National-Dex komplett",
+                "Национальный Покедекс завершён"),
+        { Kind: DexBadgeKind.NationalShiny } => T(
+                "전국 이로치 도감 완성",
+                "Shiny National Dex complete",
+                "色違い全国図鑑コンプリート",
+                "Pokédex Nacional variocolor completada",
+                "Pokédex national chromatique terminé",
+                "Pokédex Nacional shiny completa",
+                "Schillernde National-Dex komplett",
+                "Шайни Национальный Покедекс завершён"),
+        _ => throw new ArgumentOutOfRangeException(nameof(badge), badge, null),
+    };
+
+    public string NotifDexRegionCompleteTitle(string region) => T(
+        $"🏅 {region} 도감 완성!",
+        $"🏅 {region} Dex complete!",
+        $"🏅 {region}図鑑コンプリート！",
+        $"🏅 ¡Pokédex de {region} completada!",
+        $"🏅 Pokédex de {region} terminé !",
+        $"🏅 Pokédex de {region} completa!",
+        $"🏅 {region}-Dex komplett!",
+        $"🏅 Покедекс {region} завершён!");
+    public string NotifDexRegionCompleteBody(string region) => T(
+        $"{region} 지방의 모든 포켓몬을 모았어요!",
+        $"You've caught every Pokémon in {region}!",
+        $"{region}地方のすべてのポケモンを集めました！",
+        $"¡Has capturado todos los Pokémon de {region}!",
+        $"Tu as capturé tous les Pokémon de {region} !",
+        $"Você capturou todos os Pokémon de {region}!",
+        $"Du hast alle Pokémon aus {region} gefangen!",
+        $"Вы поймали всех покемонов региона {region}!");
+
+    public string NotifDexRegionShinyCompleteTitle(string region) => T(
+        $"✨ {region} 이로치 도감 완성!",
+        $"✨ Shiny {region} Dex complete!",
+        $"✨ {region} 色違い図鑑コンプリート！",
+        $"✨ ¡Pokédex variocolor de {region} completada!",
+        $"✨ Pokédex chromatique de {region} terminé !",
+        $"✨ Pokédex shiny de {region} completa!",
+        $"✨ Schillernde {region}-Dex komplett!",
+        $"✨ Шайни-Покедекс {region} завершён!");
+    public string NotifDexRegionShinyCompleteBody(string region) => T(
+        $"{region} 지방의 모든 포켓몬을 이로치로 모았어요!",
+        $"You've caught a shiny of every Pokémon in {region}!",
+        $"{region}地方のすべてのポケモンを色違いで集めました！",
+        $"¡Has capturado un variocolor de cada Pokémon de {region}!",
+        $"Tu as capturé un chromatique de chaque Pokémon de {region} !",
+        $"Você capturou um shiny de cada Pokémon de {region}!",
+        $"Du hast ein schillerndes Exemplar jedes Pokémon aus {region}!",
+        $"Вы поймали шайни каждого покемона региона {region}!");
+
+    public string NotifDexUnownCompleteTitle => T(
+        "🔤 안농 도감 완성!",
+        "🔤 Unown collection complete!",
+        "🔤 アンノーン図鑑コンプリート！",
+        "🔤 ¡Colección Unown completada!",
+        "🔤 Collection Zarbi terminée !",
+        "🔤 Coleção Unown completa!",
+        "🔤 Icognito-Sammlung komplett!",
+        "🔤 Коллекция Анноун завершена!");
+    public string NotifDexUnownCompleteBody => T(
+        "28가지 안농 형태를 모두 모았어요!",
+        "You've collected all 28 Unown forms!",
+        "28種類のアンノーンをすべて集めました！",
+        "¡Has reunido las 28 formas de Unown!",
+        "Tu as réuni les 28 formes de Zarbi !",
+        "Você reuniu todas as 28 formas de Unown!",
+        "Du hast alle 28 Icognito-Formen gesammelt!",
+        "Вы собрали все 28 форм Анноуна!");
+
+    public string NotifDexNationalCompleteTitle => T(
+        "🌍 전국도감 완성!",
+        "🌍 National Dex complete!",
+        "🌍 全国図鑑コンプリート！",
+        "🌍 ¡Pokédex Nacional completada!",
+        "🌍 Pokédex national terminé !",
+        "🌍 Pokédex Nacional completa!",
+        "🌍 National-Dex komplett!",
+        "🌍 Национальный Покедекс завершён!");
+    public string NotifDexNationalCompleteBody => T(
+        "1~5세대 모든 포켓몬을 모았어요!",
+        "You've caught every Pokémon from Gen 1–5!",
+        "第1〜5世代のすべてのポケモンを集めました！",
+        "¡Has capturado todos los Pokémon de la 1.ª a la 5.ª generación!",
+        "Tu as capturé tous les Pokémon des générations 1 à 5 !",
+        "Você capturou todos os Pokémon das gerações 1 a 5!",
+        "Du hast alle Pokémon der Generationen 1–5 gefangen!",
+        "Вы поймали всех покемонов 1–5 поколений!");
+
+    public string NotifDexNationalShinyCompleteTitle => T(
+        "✨ 전국 이로치 도감 완성!",
+        "✨ Shiny National Dex complete!",
+        "✨ 色違い全国図鑑コンプリート！",
+        "✨ ¡Pokédex Nacional variocolor completada!",
+        "✨ Pokédex national chromatique terminé !",
+        "✨ Pokédex Nacional shiny completa!",
+        "✨ Schillernde National-Dex komplett!",
+        "✨ Шайни Национальный Покедекс завершён!");
+    public string NotifDexNationalShinyCompleteBody => T(
+        "모든 포켓몬의 이로치를 모았어요!",
+        "You've caught a shiny of every Pokémon!",
+        "すべてのポケモンの色違いを集めました！",
+        "¡Has capturado un variocolor de cada Pokémon!",
+        "Tu as capturé un chromatique de chaque Pokémon !",
+        "Você capturou um shiny de cada Pokémon!",
+        "Du hast ein schillerndes Exemplar jedes Pokémon!",
+        "Вы поймали шайни каждого покемона!");
 
     // MARK: Claude limit token refresh errors (friendly guidance)
     public string LimitRefreshHTTPError(int status)
@@ -2013,6 +2604,53 @@ public sealed partial class L
         "O token de autenticação expirou. Tente de novo, ou abra o Antigravity IDE uma vez para atualizar automaticamente.",
         "Das Authentifizierungs-Token ist abgelaufen. Versuch es erneut oder starte Antigravity IDE einmal, um es automatisch zu aktualisieren.",
         "Токен авторизации истёк. Повторите попытку или один раз запустите Antigravity IDE — токен обновится автоматически.");
+
+    // MARK: OpenCode Go official limits
+    public string OpenCodeGoMonthly => T("월간", "Monthly", "月間", "Mensual", "Mensuel", "Mensal", "Monatlich", "Месяц");
+    public string OpenCodeGoAuthExpiredTitle => T(
+        "OpenCode Go 키 거부 — 한도가 갱신 안 돼요",
+        "OpenCode Go key rejected — limits can't refresh",
+        "OpenCode Go キーが拒否されました — 上限を更新できません",
+        "Clave de OpenCode Go rechazada — los límites no se pueden actualizar",
+        "Clé OpenCode Go refusée — les limites ne s'actualisent pas",
+        "Chave do OpenCode Go recusada — não dá para atualizar os limites",
+        "OpenCode-Go-Schlüssel abgelehnt – Limits können nicht aktualisiert werden",
+        "Ключ OpenCode Go отклонён — лимиты не обновляются");
+    public string OpenCodeGoAuthExpiredHint => T(
+        "OpenCode 에서 /connect 로 OpenCode Go 키를 다시 연결해 주세요.",
+        "Reconnect your OpenCode Go key with /connect in OpenCode.",
+        "OpenCode で /connect を使って OpenCode Go キーを再接続してください。",
+        "Vuelve a conectar tu clave de OpenCode Go con /connect en OpenCode.",
+        "Reconnecte ta clé OpenCode Go avec /connect dans OpenCode.",
+        "Reconecte sua chave do OpenCode Go com /connect no OpenCode.",
+        "Verbinde deinen OpenCode-Go-Schlüssel in OpenCode mit /connect neu.",
+        "Подключите ключ OpenCode Go заново командой /connect в OpenCode.");
+
+    // MARK: Grok official limits (credits)
+    public string GrokCreditPeriod(bool weekly, bool monthly)
+    {
+        if (weekly) return T("주간 크레딧", "Weekly credits", "週間クレジット", "Créditos semanales", "Crédits hebdo", "Créditos semanais", "Wöchentliche Credits", "Кредиты на неделю");
+        if (monthly) return T("월간 크레딧", "Monthly credits", "月間クレジット", "Créditos mensuales", "Crédits mensuels", "Créditos mensais", "Monatliche Credits", "Кредиты на месяц");
+        return T("크레딧", "Credits", "クレジット", "Créditos", "Crédits", "Créditos", "Credits", "Кредиты");
+    }
+    public string GrokAuthExpiredTitle => T(
+        "Grok 로그인 만료 — 한도가 갱신 안 돼요",
+        "Grok login expired — limits can't refresh",
+        "Grok のログイン期限切れ — 上限を更新できません",
+        "Sesión de Grok expirada — los límites no se pueden actualizar",
+        "Connexion Grok expirée — les limites ne s'actualisent pas",
+        "Login do Grok expirado — não dá para atualizar os limites",
+        "Grok-Anmeldung abgelaufen – Limits können nicht aktualisiert werden",
+        "Вход в Grok истёк — лимиты не обновляются");
+    public string GrokAuthExpiredHint => T(
+        "Grok CLI 를 한 번 실행하면 로그인이 갱신돼요. 안 되면 grok login 을 실행해 주세요.",
+        "Run Grok CLI once to refresh the login, or run grok login.",
+        "Grok CLI を一度実行するとログインが更新されます。だめなら grok login を実行してください。",
+        "Ejecuta Grok CLI una vez para renovar la sesión, o ejecuta grok login.",
+        "Lance Grok CLI une fois pour renouveler la connexion, ou lance grok login.",
+        "Abra o Grok CLI uma vez para renovar o login, ou rode grok login.",
+        "Starte Grok CLI einmal, um die Anmeldung zu erneuern, oder führe grok login aus.",
+        "Запустите Grok CLI один раз, чтобы обновить вход, или выполните grok login.");
 
     // MARK: Cursor official limits (monthly included allowance)
     public string CursorMonthlyIncluded => T(

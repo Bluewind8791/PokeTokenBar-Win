@@ -471,8 +471,12 @@ public class SaveTransferTests
     public void TestEveryCompanionStateFieldIsClassifiedForTransfer()
     {
         // eggTier (egg guarantee) = progress — a purchase, it follows the save to another device.
+        // eggPrayers = progress — a record on the egg being held, so it moves with the egg (#466).
+        // notifiedDexCompletions / dexCompletionsSeeded = progress — derived from the dex, so they follow it and the
+        // other device does not announce the same completion again (#442).
         string[] progress = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier", "pendingHatchID", "pendingForm",
-            "active", "representativeSpeciesID", "representativeForm", "dex", "collectedFinals", "inventory"];
+            "eggPrayers", "active", "representativeSpeciesID", "representativeForm", "dex", "collectedFinals", "inventory",
+            "notifiedDexCompletions", "dexCompletionsSeeded"];
         string[] deviceLedger = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"];
         string[] accountLedger = ["candyGrantTier", "candyWindowEpoch", "candyFeatureSeeded"];
         string[] devicePreference = ["language"];
@@ -491,6 +495,7 @@ public class SaveTransferTests
             Active = new MonState(1, [1]),
             RepresentativeSpeciesID = 201,
             RepresentativeForm = new PokemonForm("b"),
+            EggPrayers = new PrayerRecord(1),
         };
         var keys = CompanionJson.EncodeState(full, SwiftDateEncoding.DeferredToDate).Select(kv => kv.Key).ToHashSet();
         Assert.Equal(classified.Order(), keys.Order());

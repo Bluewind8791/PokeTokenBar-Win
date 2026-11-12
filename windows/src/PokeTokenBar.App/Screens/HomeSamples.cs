@@ -14,6 +14,8 @@ public enum HomeSample
     Empty,
     /// <summary>Update banner, status-page incident, expired login notice, growth boost and a branching line.</summary>
     Alerts,
+    /// <summary><see cref="Full"/> with the activity row on the 16-week grid and a ledger behind this month (#449).</summary>
+    Heatmap,
 }
 
 /// <summary>
@@ -27,6 +29,11 @@ public static partial class SampleData
     {
         var settings = new AppSettings(null);
         settings.Set("showLimitInMenu", true);
+        if (sample == HomeSample.Heatmap)
+        {
+            SeedWeekdayLedger(settings);
+            settings.Set("activityVisualization", ActivityVisualization.RecentHeatmap.RawValue());
+        }
         IUsageProvider provider = sample switch
         {
             HomeSample.QuietDay => new QuietProvider(history: true),
@@ -58,6 +65,20 @@ public static partial class SampleData
         // Without a baseline yet this only loads the raised Pokémon's line (no usage is applied).
         companion.Update(new Dictionary<string, long>(), LocalUsageReader.TodayKey(), 0, BurnTier.Idle, false, false);
         return new AppServices { Store = store, Companion = companion, Updater = updater, Nav = new PopoverNavigation() };
+    }
+
+    /// <summary>Daily totals for the 16 weeks before this month: busy weekdays, quiet weekends — the habit the grid shows.</summary>
+    private static void SeedWeekdayLedger(AppSettings settings)
+    {
+        var ledger = new System.Text.Json.Nodes.JsonObject();
+        var monthStart = LocalUsageReader.StartOfMonth(Now).Date;
+        var start = monthStart.AddDays(-7 * 16);
+        var rng = new Random(11);
+        for (var d = start; d < monthStart; d = d.AddDays(1))
+            if (d.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday) || rng.Next(5) == 0)
+                ledger[d.ToString("yyyy-MM-dd")] = 300_000L + rng.Next(25) * 100_000L;
+        settings.SetNode(UsageLedger.DefaultsKey, ledger);
+        settings.Set(UsageLedger.CoverageKey, start.ToString("yyyy-MM-dd"));
     }
 
     private static string WriteHomeSave(AppLanguage lang, HomeSample sample)

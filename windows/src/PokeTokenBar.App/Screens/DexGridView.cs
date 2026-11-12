@@ -98,6 +98,7 @@ internal static class DexGridView
         Action<CompanionStore.DexSpecies> OnSelectSpecies,
         Action OnResetFilters,
         Action<Rarity> OnToggleRarity,
+        Action<PokedexRegion> OnToggleRegion,
         Action Refresh);
 
     public static FrameworkElement Build(Context c)
@@ -106,7 +107,7 @@ internal static class DexGridView
         var l = store.L;
         var f = c.Filters;
         var all = store.DexSpeciesList;
-        var visible = store.FilteredDexSpecies(f.SearchText, f.SelectedRarity, f.ShinyOnly, f.DexSort);
+        var visible = store.FilteredDexSpecies(f.SearchText, f.SelectedRarity, f.ShinyOnly, f.SelectedRegion, f.DexSort);
         var pageCount = Math.Max(1, (visible.Count + PageSize - 1) / PageSize);
         var current = Math.Min(c.Grid.Page ?? DexScrollPager.Page(c.Grid.ReturnAnchor, visible.Select(v => v.CollectionID).ToList(), PageSize),
             pageCount - 1);
@@ -124,7 +125,8 @@ internal static class DexGridView
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var header = CollectionView.RarityHeader(l.DexTitle, l.DexSpeciesTotal(all.Count),
-            r => all.Count(s => s.Rarity == r), f.SelectedRarity, l, c.OnToggleRarity);
+            r => all.Count(s => s.Rarity == r), f.SelectedRarity, l, c.OnToggleRarity,
+            DexBadgeMedal.Strip(store.EarnedDexBadges, l), RegionChips(c));
         root.Children.Add(header);
         if (visible.Count == 0)
         {
@@ -154,6 +156,27 @@ internal static class DexGridView
         Grid.SetRow(footer, 2);
         root.Children.Add(footer);
         return root;
+    }
+
+    /// <summary>One progress capsule per generation; clicking filters the grid to it (again: back to all). A generation
+    /// with nothing owned yet is disabled.</summary>
+    private static FrameworkElement RegionChips(Context c)
+    {
+        var l = c.Services.Companion.L;
+        var chips = Ui.HStack(4);
+        foreach (var completion in c.Services.Companion.DexCompletions)
+        {
+            var region = completion.Region;
+            var label = l.DexRegionProgressLabel(region, completion.Owned, completion.Total);
+            var selected = c.Filters.SelectedRegion == region;
+            var chip = RegionTally.Build(l.RegionName(region), completion, selected).Help(label);
+            System.Windows.Automation.AutomationProperties.SetName(chip, label);
+            // Every filter change rebuilds the strip at offset 0; SwiftUI keeps the scroll position, so the selected
+            // capsule (Unova sits past the edge) is scrolled back into view instead.
+            if (selected) chip.Loaded += (_, _) => chip.BringIntoView();
+            chips.Children.Add(chip.Plain(() => c.OnToggleRegion(region), enabled: RegionTally.IsEnabled(completion)));
+        }
+        return CollectionView.CapsuleStrip(chips);
     }
 
     private static Grid Cells(Context c, IReadOnlyList<CompanionStore.DexSpecies> slice)

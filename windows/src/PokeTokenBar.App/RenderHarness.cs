@@ -31,6 +31,11 @@ public static class RenderHarness
         ["home-alerts"] = c => PopoverRoot.Build(SampleData.HomeServices(c, HomeSample.Alerts)),
         ["home-content"] = c => { var s = SampleData.HomeServices(c, HomeSample.Full); return Live.View(s, () => HomeView.Build(s)); },
         ["home-alerts-content"] = c => { var s = SampleData.HomeServices(c, HomeSample.Alerts); return Live.View(s, () => HomeView.Build(s)); },
+        ["home-trend-7d"] = c => TrendContent(c, DailyTrendWindow.D7),
+        ["home-trend-21d"] = c => TrendContent(c, DailyTrendWindow.D21),
+        ["home-trend-month"] = c => TrendContent(c, DailyTrendWindow.Month),
+        ["home-heatmap"] = c => { var s = SampleData.HomeServices(c, HomeSample.Heatmap); return Live.View(s, () => HomeView.Build(s)); },
+        ["home-heatmap-full"] = c => PopoverRoot.Build(SampleData.HomeServices(c, HomeSample.Heatmap)),
         ["shop-ref"] = SampleData.ShopReference,
         ["shop-stocked"] = SampleData.ShopStocked,
         ["bag-ref"] = SampleData.BagReference,
@@ -39,17 +44,80 @@ public static class RenderHarness
         ["shop-warning"] = SampleData.ShopWarning,
         ["bag-confirm"] = SampleData.BagConfirm,
         ["collection"] = c => SampleData.CollectionPopover(c, n => n.Tab = PopoverTab.Collection),
-        ["catchlog"] = c => SampleData.CollectionPopover(c, n => { n.Tab = PopoverTab.Collection; n.ShowingCollectionLog = true; }),
+        ["collection-regions"] = SampleData.RegionsPopover,
+        ["catchlog"] =c => SampleData.CollectionPopover(c, n => { n.Tab = PopoverTab.Collection; n.ShowingCollectionLog = true; }),
         ["dexdetail"] = c => SampleData.CollectionPopover(c, n => n.OpenDexEntry("479"), withForms: true, preloadDetailsFor: 479),
         ["dexprofile"] = c => SampleData.CollectionPopover(c, n => n.OpenDexEntry("15"), preloadDetailsFor: 15),
         ["settings"] = c => SampleData.SettingsPopover(c, n => n.ShowSettings = true),
         ["settings-advanced"] = c => SampleData.SettingsPopover(c, n => n.OpenSessionKeySettings(), sessionKey: true),
         ["settings-snapshots"] = c => SampleData.SettingsPopover(c, n => n.ShowSettings = true, preset: s => SettingsView.Preset(s, st => st.SnapshotsExpanded = true)),
+        ["settings-menubar"] = SettingsMenuBar,
+        ["settings-floatingpet"] = SettingsFloatingPet,
         ["recap"] = c => SampleData.SettingsPopover(c, n => n.ShowingRecap = true),
         ["recap-month"] = c => SampleData.SettingsPopover(c, n => n.ShowingRecap = true, preset: s => RecapScreen.Preset(s, RecapScope.Month)),
         ["recap-year"] = c => SampleData.SettingsPopover(c, n => n.ShowingRecap = true, preset: s => RecapScreen.Preset(s, RecapScope.Year)),
         ["recap-empty"] = c => Popover(c, n => n.ShowingRecap = true),
+        ["pet-egg-prayers"] = SampleData.PetEggPrayers,
+        ["pet-hearts"] = SampleData.PetHearts,
+        ["pet-sulk"] = SampleData.PetSulk,
+        ["pet-event"] = SampleData.PetEvent,
+        ["pet-agent-working"] = SampleData.PetAgentWorking,
+        ["pet-agent-waiting"] = SampleData.PetAgentWaiting,
+        ["pet-agent-done"] = SampleData.PetAgentDone,
+        ["home-sulk"] = SampleData.HomeSulk,
+        ["dexdetail-prayers"] = SampleData.DexDetailPrayers,
     };
+
+    /// <summary>Home content with the daily trend set to <paramref name="window"/> (the default is 14 days).</summary>
+    private static FrameworkElement TrendContent(Context c, DailyTrendWindow window)
+    {
+        var s = SampleData.HomeServices(c, HomeSample.Full);
+        s.Store.DailyTrendWindow = window;
+        return Live.View(s, () => HomeView.Build(s));
+    }
+
+    /// <summary>Settings scrolled to the menu bar (tray tooltip) section, with every item on.</summary>
+    private static FrameworkElement SettingsMenuBar(Context c)
+    {
+        var s = SampleData.SettingsServices(c);
+        s.Store.ShowCostInMenu = true;
+        s.Store.ShowGrowthInMenu = true;
+        s.Nav.ShowSettings = true;
+        return ScrolledTo(PopoverRoot.Build(s), new L(c.Language).WinMenuBarSectionTitle);
+    }
+
+    /// <summary>Settings scrolled to the floating pet section (the back view toggle sits under the on/off switch).</summary>
+    private static FrameworkElement SettingsFloatingPet(Context c)
+    {
+        var s = SampleData.SettingsServices(c);
+        s.Store.FloatingPetEnabled = true;
+        s.Store.AlwaysFacesBack = true;
+        s.Nav.ShowSettings = true;
+        return ScrolledTo(PopoverRoot.Build(s), new L(c.Language).FloatingPetSectionTitle);
+    }
+
+    /// <summary>Scrolls the popover's settings list so the section titled <paramref name="title"/> is at the top.</summary>
+    private static FrameworkElement ScrolledTo(FrameworkElement root, string title)
+    {
+        root.Loaded += (_, _) => root.Dispatcher.BeginInvoke(() =>
+        {
+            if (Descendants(root).OfType<ScrollViewer>().FirstOrDefault() is not { Content: UIElement body } scroll) return;
+            // Section titles may be upper-cased: match ignoring case.
+            if (Descendants(body).OfType<TextBlock>().FirstOrDefault(t => string.Equals(t.Text, title, StringComparison.OrdinalIgnoreCase)) is { } header)
+                scroll.ScrollToVerticalOffset(header.TransformToAncestor(body).Transform(new Point()).Y - 12);
+        }, System.Windows.Threading.DispatcherPriority.Background);
+        return root;
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            yield return child;
+            foreach (var d in Descendants(child)) yield return d;
+        }
+    }
 
     /// <summary>The whole popover with sample stores, after applying a navigation route.</summary>
     private static FrameworkElement Popover(Context c, Action<PopoverNavigation> route)

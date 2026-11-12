@@ -32,22 +32,36 @@ public sealed class SpriteStore
         System.IO.Directory.CreateDirectory(Directory);
     }
 
-    public static string CacheKey(int speciesID, bool animated, bool shiny, PokemonForm? form = null) =>
-        $"{PokemonForm.AssetName(speciesID, form)}-{(shiny ? "sh" : "")}{(animated ? "a" : "s")}";
+    /// <summary><paramref name="back"/> sprites (the companion turned away) get their own <c>-back</c> segment; front keys are unchanged.</summary>
+    public static string CacheKey(int speciesID, bool animated, bool shiny, PokemonForm? form = null, bool back = false) =>
+        $"{PokemonForm.AssetName(speciesID, form)}-{(back ? "back-" : "")}{(shiny ? "sh" : "")}{(animated ? "a" : "s")}";
 
-    public static string SpriteUrl(int speciesID, bool animated, bool shiny, PokemonForm? form = null)
+    /// <summary>Back sprites sit in a <c>back/</c> folder in front of <c>shiny/</c>, for both GIFs and PNGs.</summary>
+    public static string SpriteUrl(int speciesID, bool animated, bool shiny, PokemonForm? form = null, bool back = false)
     {
         var name = animated ? PokemonForm.AssetName(speciesID, form) : PokemonForm.StaticAssetName(speciesID, form);
         var path = animated ? "versions/generation-v/black-white/animated/" : "";
+        var facing = back ? "back/" : "";
         var color = shiny ? "shiny/" : "";
-        return $"{Base}/{path}{color}{name}.{(animated ? "gif" : "png")}";
+        return $"{Base}/{path}{facing}{color}{name}.{(animated ? "gif" : "png")}";
     }
 
-    public Task<byte[]?> Data(int speciesID, bool animated, bool shiny = false, PokemonForm? form = null)
+    public Task<byte[]?> Data(int speciesID, bool animated, bool shiny = false, PokemonForm? form = null, bool back = false)
     {
         if (animated && !PokemonAssets.HasAnimatedSprite(speciesID)) return Task.FromResult<byte[]?>(null);
-        var key = CacheKey(speciesID, animated, shiny, form);
-        return Fetch(key, $"{key}.{(animated ? "gif" : "png")}", SpriteUrl(speciesID, animated, shiny, form));
+        var key = CacheKey(speciesID, animated, shiny, form, back);
+        return Fetch(key, $"{key}.{(animated ? "gif" : "png")}", SpriteUrl(speciesID, animated, shiny, form, back));
+    }
+
+    /// <summary>
+    /// The sprites to try, best first: with <paramref name="back"/> the back sprite (shiny, then plain), then the
+    /// front one as the fallback (a missing back sprite must not leave the pet blank); without it the front only.
+    /// </summary>
+    public static IReadOnlyList<(bool Back, bool Shiny)> Variants(bool shiny, bool back)
+    {
+        var colors = shiny ? new[] { true, false } : new[] { false };
+        var facings = back ? new[] { true, false } : new[] { false };
+        return facings.SelectMany(f => colors.Select(c => (f, c))).ToList();
     }
 
     public Task<byte[]?> ItemData(string itemName) =>
@@ -221,5 +235,77 @@ public static class SpriteImages
             return src;
         }
         finally { bmp.UnlockBits(data); }
+    }
+}
+
+/// <summary>
+/// Port of <c>SpriteVisibleTop</c> (SpriteLoader.swift): where a sprite's visible top sits inside its square box, so
+/// an overlay (the petting heart) can hug the Pokémon instead of the often emptier box. Most Gen-V canvases do not
+/// fill the box.
+/// </summary>
+public static class SpriteVisibleTop
+{
+    private const byte AlphaThreshold = 16;
+    /// <summary>The bubble's tail points at the horizontal center, so only this middle band of the image decides the
+    /// anchor. Raised arms, ears and tails at the sides must not.</summary>
+    private const double BandLower = 0.35, BandUpper = 0.65;
+    /// <summary>Opaque-row scan results per decoded frame. Frames and the egg are decoded once, then reused.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource, object> Cache = new();
+
+    /// <summary>Distance from the box top to the first visible row of an image that is aspect-fit and centred in a
+    /// <paramref name="box"/>² slot. <paramref name="opaqueTopFraction"/> is the share of the image height above its
+    /// first opaque row (0 = the sprite touches the canvas top).</summary>
+    public static double Inset(double box, double imageWidth, double imageHeight, double opaqueTopFraction)
+    {
+        var fitHeight = imageWidth > 0 && imageHeight > 0
+            ? imageHeight * Math.Min(box / imageWidth, box / imageHeight)
+            : box;
+        return (box - fitHeight) / 2 + Math.Clamp(opaqueTopFraction, 0, 1) * fitHeight;
+    }
+
+    /// <summary>Which top to anchor to across an animation: the median frame. The minimum would follow the few frames
+    /// that jump or stretch to the canvas top (Rotom-Heat: min 0, typical 0.3), dragging the bubble far above the
+    /// sprite.</summary>
+    public static double AnchorFraction(IReadOnlyList<double> frameFractions)
+    {
+        if (frameFractions.Count == 0) return 0;
+        return frameFractions.Order().ElementAt(frameFractions.Count / 2);
+    }
+
+    /// <summary>Y of a bubble's top edge, from the box top, so its tail tip lands <paramref name="overlap"/> below the
+    /// sprite's visible top. Rounded to whole points: a pixel-art bubble at a fractional offset blurs.</summary>
+    public static double BubbleTopOffset(double visibleTop, double bubbleHeight, double overlap) =>
+        Math.Round(visibleTop + overlap - bubbleHeight, MidpointRounding.AwayFromZero);
+
+    /// <summary>Share of the image height above the first non-transparent row of the central band (the whole width
+    /// when the band is empty); 0 when the image cannot be read.</summary>
+    public static double OpaqueTopFraction(BitmapSource image)
+    {
+        if (Cache.TryGetValue(image, out var hit)) return (double)hit;
+        var fraction = Scan(image);
+        Cache.AddOrUpdate(image, fraction);
+        return fraction;
+    }
+
+    private static double Scan(BitmapSource image)
+    {
+        int w = image.PixelWidth, h = image.PixelHeight;
+        if (w <= 0 || h <= 0) return 0;
+        var source = image.Format == System.Windows.Media.PixelFormats.Bgra32 || image.Format == System.Windows.Media.PixelFormats.Pbgra32
+            ? image : new FormatConvertedBitmap(image, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+        var stride = w * 4;
+        var pixels = new byte[stride * h];
+        source.CopyPixels(pixels, stride, 0);
+        var bandStart = (int)(w * BandLower);
+        var bandEnd = Math.Max(bandStart + 1, (int)(w * BandUpper));
+        int? FirstOpaqueRow(int from, int to)
+        {
+            for (var row = 0; row < h; row++)
+                for (var column = from; column < to; column++)
+                    if (pixels[row * stride + column * 4 + 3] > AlphaThreshold) return row;
+            return null;
+        }
+        var first = FirstOpaqueRow(bandStart, Math.Min(bandEnd, w)) ?? FirstOpaqueRow(0, w);
+        return first is { } r ? (double)r / h : 0;
     }
 }

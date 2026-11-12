@@ -857,6 +857,19 @@ read_when:
   `writeAndFlush` 로 묶는다. `AppLog.writeAndFlush` 는 테스트된 `backend.writeAndFlush` 를
   타야 한다 — `write()`+`flush()` 두 번째 쌍은 가드가 안 되고, `flush()` 만 빼면 스위트가
   초록인데 #174 가 다시 산다. (#174)
+- **Windows: a WPF app's `OnExit` is not a session-end hook.** WPF answers `WM_QUERYENDSESSION`
+  with an asynchronous `Shutdown()`, and Windows may end the process right after `WM_ENDSESSION`,
+  before `OnExit` runs. The port cleared the crash marker only in `OnExit`, so a Start-menu restart
+  was logged as "previous session did not exit cleanly" at the next launch. Unit tests and the live
+  check covered tray Quit and a kill only, never the session-end path. Do the clean mark
+  synchronously in `App.OnSessionEnding` (macOS needs nothing: logout reaches `willTerminate`).
+  WPF still shuts the app down after an uncancelled `SessionEnding`, even when another app vetoes the
+  session end, so the mark stays true. Anything else that must happen before a logoff or restart
+  belongs there too (today nothing: saves are immediate). Guard: `SessionEndTests` (the override
+  exists) and a live check that sends `WM_QUERYENDSESSION`/`WM_ENDSESSION` to every top-level window
+  of the app, then kills it: the marker must be gone and `clean shutdown (session ending: …)` logged.
+  That check alone cannot catch a regression: the pre-fix build sometimes won the race there, while
+  it lost on the real restart (marker kept, no `clean shutdown` line).
 
 ## 표시·UI
 
@@ -1279,6 +1292,16 @@ read_when:
   넣어 보고, 로컬 장부만 새 기기 기준으로 다시 잡는다(`SaveTransfer.rebasedForThisDevice`). 회귀 가드:
   `testTransferDayTokensStillCountAfterRebase` — 재정렬 없는 대조군을 같이 돌려 결함 조건이 살아 있는지도
   함께 확인한다(테스트가 트리거 브랜치를 실제로 밟는지 보증).
+- **A save field added on macOS must also be written by the Windows port.** The Windows encoder
+  (`windows/src/PokeTokenBar.Core/CompanionJson.cs`) writes only the keys it knows. #466 (`prayers`,
+  `eggPrayers`) and #442 (`notifiedDexCompletions`, `dexCompletionsSeeded`) landed on macOS after the
+  port, so a macOS save imported on Windows and exported back lost them silently: the import succeeds and
+  every value it shows is right. **Why it went unnoticed:** the save-format tests used hand-written
+  fixtures of the format at port time, so they kept passing; only the localization table had a parity
+  test that reads the Swift source. **Fix:** port the fields with their egg lifecycle (reset on a new
+  egg, carried onto the hatchling and the dex entry). **Guard:** `SaveFieldParityTests` parses the
+  stored properties of `MonState`, `DexEntry` and `CompanionState` in `CompanionModel.swift` and fails
+  when the Windows encoder does not write one (checked by removing the `prayers` key from the encoder).
 - **Read a rotated file into memory before any write that can prune it.** Snapshot restore took
   the pre-restore safety snapshot first; at exactly `maxSnapshotsToKeep` files that 11th snapshot
   pruned the oldest one, so restoring the oldest entry read a deleted file. The restore test only

@@ -14,6 +14,8 @@ public sealed record ProviderSnapshot
     /// <summary>This month's day-by-day totals (month start → today, empty days as zeros), or null when
     /// the provider cannot produce a series.</summary>
     public IReadOnlyList<DailyUsage>? MonthDaily { get; init; }
+    /// <summary>Rolling recent day-by-day totals (21 days → today), or null.</summary>
+    public IReadOnlyList<DailyUsage>? RecentDaily { get; init; }
     public DateTimeOffset FetchedAt { get; init; }
     /// <summary>Mirrors <see cref="IUsageProvider.ReportsCost"/>.</summary>
     public bool ReportsCost { get; init; } = true;
@@ -30,6 +32,7 @@ public sealed record ProviderSnapshot
         || (WeekTotal?.TotalTokens ?? 0) > 0
         || (MonthTotal?.TotalTokens ?? 0) > 0
         || MonthDaily?.Any(d => d.TotalTokens > 0) == true
+        || RecentDaily?.Any(d => d.TotalTokens > 0) == true
         || (LastUsage is { } last && now - last <= LocalUsageReader.RecentUseWindow);
 }
 
@@ -255,6 +258,9 @@ public sealed class UsageStore : IDisposable
     public bool ShowTokensInMenu { get => _showTokensInMenu; set => SetBool(ref _showTokensInMenu, value, "showTokensInMenu"); }
     public bool ShowCostInMenu { get => _showCostInMenu; set => SetBool(ref _showCostInMenu, value, "showCostInMenu"); }
     public bool ShowLimitInMenu { get => _showLimitInMenu; set => SetBool(ref _showLimitInMenu, value, "showLimitInMenu"); }
+    private bool _showGrowthInMenu;
+    /// <summary>The raised companion's hatch / growth percentage in the tray tooltip (<see cref="MenuBarContent"/>).</summary>
+    public bool ShowGrowthInMenu { get => _showGrowthInMenu; set => SetBool(ref _showGrowthInMenu, value, "showGrowthInMenu"); }
 
     private LimitPace.LimitDisplayMode _limitDisplayMode;
     /// <summary>Used (default) or remaining. Numbers only: warning colors, gauges' tiers and alerts keep the raw utilization.</summary>
@@ -265,6 +271,19 @@ public sealed class UsageStore : IDisposable
         {
             _limitDisplayMode = value;
             _settings.Set("limitDisplayMode", value == LimitPace.LimitDisplayMode.Remaining ? "remaining" : "used");
+            NotifyChanged();
+        }
+    }
+
+    private DailyTrendWindow _dailyTrendWindow;
+    /// <summary>Span of the popover's daily trend (14 days by default).</summary>
+    public DailyTrendWindow DailyTrendWindow
+    {
+        get => _dailyTrendWindow;
+        set
+        {
+            _dailyTrendWindow = value;
+            _settings.Set("dailyTrendWindow", value.RawValue());
             NotifyChanged();
         }
     }
@@ -281,6 +300,22 @@ public sealed class UsageStore : IDisposable
         }
     }
 
+    private ActivityVisualization _activityVisualization;
+    /// <summary>
+    /// The activity visualization the popover draws. An unknown stored value falls back to the default, so going
+    /// back to a build without that visualization, or a hand-edited setting, never leaves the popover empty.
+    /// </summary>
+    public ActivityVisualization ActivityVisualization
+    {
+        get => _activityVisualization;
+        set
+        {
+            _activityVisualization = value;
+            _settings.Set("activityVisualization", value.RawValue());
+            NotifyChanged();
+        }
+    }
+
     private bool _limitNotifications, _companionNotifications, _updateNotificationsEnabled, _statusChecksEnabled;
     public bool LimitNotifications { get => _limitNotifications; set => SetBool(ref _limitNotifications, value, "limitNotifications"); }
     public bool CompanionNotifications { get => _companionNotifications; set => SetBool(ref _companionNotifications, value, "companionNotifications"); }
@@ -292,6 +327,9 @@ public sealed class UsageStore : IDisposable
     private bool _floatingPetEnabled, _floatingPetBubbleAlerts;
     private double _floatingPetSize;
     public bool FloatingPetEnabled { get => _floatingPetEnabled; set => SetBool(ref _floatingPetEnabled, value, "floatingPetEnabled"); }
+    private bool _alwaysFacesBack;
+    /// <summary>Always show the companion's back sprite, regardless of usage. A display preference only. Default off.</summary>
+    public bool AlwaysFacesBack { get => _alwaysFacesBack; set => SetBool(ref _alwaysFacesBack, value, "alwaysFacesBack"); }
     /// <summary>Sprite edge length (px).</summary>
     public double FloatingPetSize
     {
@@ -305,6 +343,10 @@ public sealed class UsageStore : IDisposable
     }
     /// <summary>Limit alerts as speech bubbles on the floating pet; independent of toasts.</summary>
     public bool FloatingPetBubbleAlerts { get => _floatingPetBubbleAlerts; set => SetBool(ref _floatingPetBubbleAlerts, value, "floatingPetBubbleAlerts"); }
+    private bool _floatingPetAgentActivity;
+    /// <summary>Let coding agents drive the floating pet through <c>poketokenbar://agent</c> URLs. Default on —
+    /// nothing happens until the user wires an agent hook.</summary>
+    public bool FloatingPetAgentActivity { get => _floatingPetAgentActivity; set => SetBool(ref _floatingPetAgentActivity, value, "floatingPetAgentActivity"); }
 
     private MenuLimitColorMode _menuLimitColorMode;
     public MenuLimitColorMode MenuLimitColorMode
@@ -420,19 +462,27 @@ public sealed class UsageStore : IDisposable
     /// Menu bar lines: two or fewer items enabled → one line each; all three → tokens · cost on one line and the
     /// limit below (two lines). Empty = icon only. The limit line lists providers used today only.
     /// </summary>
-    public IReadOnlyList<string> MenuLines
+    public IReadOnlyList<string> MenuLines => MenuLinesWithGrowth(growthText: null);
+
+    /// <summary>
+    /// Port of <c>menuLines(growthText:)</c> (a C# property and method cannot share a name): <see cref="MenuLines"/>
+    /// plus the companion's growth. The tray tooltip has no two-line limit and is cut from the end at 127 characters,
+    /// so on Windows the growth is its own line after the usage and limit lines instead of joining the usage line:
+    /// if the tooltip is ever cut, the growth goes before the lines it was added next to.
+    /// </summary>
+    public IReadOnlyList<string> MenuLinesWithGrowth(string? growthText)
     {
-        get
-        {
-            if (LastUpdated == null) return ["—"];
-            var usage = new List<string>();
-            if (ShowTokensInMenu) usage.Add(TokenFormatter.Compact(TodayTotalTokens));
-            if (ShowCostInMenu && ShowsCost) usage.Add(TodayUsageCost.Text(new L(LocalizationLanguage), compact: true));
-            var limit = MenuLimitLine;
-            if (limit != null && usage.Count == 2) return [string.Join(" · ", usage), limit];
-            if (limit != null) usage.Add(limit);
-            return usage;
-        }
+        // Saved growth is available even before the first usage refresh finishes.
+        if (LastUpdated == null) return growthText != null ? [growthText] : ["—"];
+        var usage = new List<string>();
+        if (ShowTokensInMenu) usage.Add(TokenFormatter.Compact(TodayTotalTokens));
+        if (ShowCostInMenu && ShowsCost) usage.Add(TodayUsageCost.Text(new L(LocalizationLanguage), compact: true));
+        var limit = MenuLimitLine;
+        var lines = usage;
+        if (limit != null && usage.Count == 2) lines = [string.Join(" · ", usage), limit];
+        else if (limit != null) lines.Add(limit);
+        if (growthText != null) lines.Add(growthText);
+        return lines;
     }
 
     /// <summary>One line, used-today providers only (null = none). No "remaining" suffix: the surface is narrow.</summary>
@@ -450,9 +500,9 @@ public sealed class UsageStore : IDisposable
         if (!ShowLimitInMenu) return [];
         var at = now ?? _now();
         var parts = new List<MenuLimitPart>();
-        if (MenuClaudeAccount?.Status.FiveHour is { Utilization: { } utilization } window)
+        if (MenuClaudeAccount?.Status.HeadlineWindow is ({ Utilization: { } utilization } window, var span))
         {
-            var pace = window.ResetDate is { } reset ? PaceFraction(reset, LimitWindowSpan.FiveHour, at) : null;
+            var pace = window.ResetDate is { } reset ? PaceFraction(reset, span, at) : null;
             parts.Add(new MenuLimitPart($"Claude {TokenFormatter.Percent(LimitDisplayPercent(utilization))}", utilization, pace));
         }
         return parts;
@@ -472,13 +522,13 @@ public sealed class UsageStore : IDisposable
         return runs;
     }
 
-    /// <summary>The account whose 5h percentage the menu bar shows, null when it shows none.</summary>
+    /// <summary>The account whose headline percentage (5h, else weekly) the menu bar shows, null when it shows none.</summary>
     private ClaudeAccountLimits? MenuClaudeAccount
     {
         get
         {
             if (!ShowLimitInMenu || !_snapshots.Any(s => s.ProviderID == "claude_code" && s.TodayTotalTokens > 0)) return null;
-            return TrackedClaudeAccount is { Status.FiveHour.Utilization: not null } account ? account : null;
+            return TrackedClaudeAccount is { Status.HeadlineWindow: not null } account ? account : null;
         }
     }
 
@@ -549,39 +599,84 @@ public sealed class UsageStore : IDisposable
     /// absent from the sum. Cost counts only providers that report it, coverage merged. The date axis is the
     /// union of the providers' own axes, so a scan straddling midnight cannot truncate the others' last day.
     /// </summary>
-    public IReadOnlyList<DailyUsage> MonthDailyTotals
+    public IReadOnlyList<DailyUsage> MonthDailyTotals => MergedDailyTotals(snapshot => snapshot.MonthDaily);
+
+    /// <summary>The trend's day-by-day totals for <see cref="DailyTrendWindow"/>.</summary>
+    public IReadOnlyList<DailyUsage> DailyTrendTotals => DailyTrendTotalsFor(DailyTrendWindow);
+
+    /// <summary>
+    /// Some provider has a used day in either series. Keeps the window selector on screen when the chosen
+    /// window is empty but another one is not (e.g. 7 days idle, used earlier this month).
+    /// </summary>
+    public bool HasDailyTrendHistory => _snapshots.Any(snapshot =>
+        snapshot.MonthDaily?.Any(d => d.TotalTokens > 0) == true
+        || snapshot.RecentDaily?.Any(d => d.TotalTokens > 0) == true);
+
+    public IReadOnlyList<DailyUsage> DailyTrendTotalsFor(DailyTrendWindow window) =>
+        window.DayCount() is { } days ? RollingDailyTotals(days) : MonthDailyTotals;
+
+    /// <summary>
+    /// The last <paramref name="days"/> days summed across providers, merged like <see cref="MonthDailyTotals"/>.
+    /// A provider without a rolling series falls back to the tail of its month series.
+    /// </summary>
+    public IReadOnlyList<DailyUsage> RollingDailyTotals(int days) =>
+        MergedDailyTotals(snapshot => (snapshot.RecentDaily ?? snapshot.MonthDaily)?.TakeLast(days));
+
+    private IReadOnlyList<DailyUsage> MergedDailyTotals(Func<ProviderSnapshot, IEnumerable<DailyUsage>?> seriesOf)
     {
-        get
+        var byDay = new Dictionary<string, DailyUsage>();
+        foreach (var snapshot in _snapshots)
         {
-            var byDay = new Dictionary<string, DailyUsage>();
-            foreach (var snapshot in _snapshots)
+            if (seriesOf(snapshot) is not { } series) continue;
+            foreach (var day in series)
             {
-                if (snapshot.MonthDaily is not { } series) continue;
-                foreach (var day in series)
+                var merged = byDay.GetValueOrDefault(day.Date)
+                    ?? new DailyUsage(day.Date, 0, 0, 0, 0, 0, 0, CostCoverage: CostCoverage.Empty);
+                var coverage = merged.CostCoverage;
+                if (snapshot.ReportsCost) coverage.Merge(day.CostCoverage);
+                byDay[day.Date] = merged with
                 {
-                    var merged = byDay.GetValueOrDefault(day.Date)
-                        ?? new DailyUsage(day.Date, 0, 0, 0, 0, 0, 0, CostCoverage: CostCoverage.Empty);
-                    var coverage = merged.CostCoverage;
-                    if (snapshot.ReportsCost) coverage.Merge(day.CostCoverage);
-                    byDay[day.Date] = merged with
-                    {
-                        InputTokens = merged.InputTokens + day.InputTokens,
-                        OutputTokens = merged.OutputTokens + day.OutputTokens,
-                        CacheCreationTokens = merged.CacheCreationTokens + day.CacheCreationTokens,
-                        CacheReadTokens = merged.CacheReadTokens + day.CacheReadTokens,
-                        TotalTokens = merged.TotalTokens + day.TotalTokens,
-                        TotalCost = merged.TotalCost + (snapshot.ReportsCost ? day.TotalCost : 0),
-                        CostCoverage = coverage,
-                    };
-                }
+                    InputTokens = merged.InputTokens + day.InputTokens,
+                    OutputTokens = merged.OutputTokens + day.OutputTokens,
+                    CacheCreationTokens = merged.CacheCreationTokens + day.CacheCreationTokens,
+                    CacheReadTokens = merged.CacheReadTokens + day.CacheReadTokens,
+                    TotalTokens = merged.TotalTokens + day.TotalTokens,
+                    TotalCost = merged.TotalCost + (snapshot.ReportsCost ? day.TotalCost : 0),
+                    CostCoverage = coverage,
+                };
             }
-            // "yyyy-MM-dd" sorts lexicographically the same way it sorts chronologically.
-            return byDay.Values.OrderBy(d => d.Date, StringComparer.Ordinal).ToList();
         }
+        // "yyyy-MM-dd" sorts lexicographically the same way it sorts chronologically.
+        return byDay.Values.OrderBy(d => d.Date, StringComparer.Ordinal).ToList();
     }
 
     /// <summary>Day-by-day history behind the usage recap, copied from the month series at every refresh.</summary>
     public UsageLedger DailyLedger { get; private set; }
+
+    /// <summary>The first refresh of this session has finished its enrichment scan. Until then <c>LastUsage</c> may be a
+    /// restored or carried-over value, so nothing is known yet.</summary>
+    public bool LastUsageKnown { get; private set; }
+    /// <summary>Providers whose latest enrichment scan failed. Their <c>LastUsage</c> is a carried-over value.</summary>
+    private HashSet<string> _failedEnrichmentIDs = [];
+
+    /// <summary>
+    /// How long ago the newest token usage happened (<see cref="ProviderSnapshot.LastUsage"/>, the same value that keeps
+    /// a recently used provider's tab visible). Null only before the first complete refresh, which must never be
+    /// treated as idle. After that a provider that cannot be read does not veto: it is ignored, and if no provider
+    /// reports any usage time the answer is "at least the scan window".
+    /// </summary>
+    public TimeSpan? TimeSinceLastUsage(DateTimeOffset? now = null)
+    {
+        if (!LastUsageKnown) return null;
+        var reported = _snapshots.Where(s => !_failedEnrichmentIDs.Contains(s.ProviderID))
+            .Select(s => s.LastUsage).OfType<DateTimeOffset>().ToList();
+        if (reported.Count == 0) return LocalUsageReader.RecentUseWindow;
+        var idle = (now ?? _now()) - reported.Max();
+        return idle < TimeSpan.Zero ? TimeSpan.Zero : idle;
+    }
+
+    /// <summary>The run of days with usage that is still going, read from the same ledger as the recap.</summary>
+    public UsageStreak CurrentStreak => DailyLedger.CurrentStreak(_now(), RecapCalendar.Current());
 
     private void RecordDailyLedger()
     {
@@ -739,8 +834,12 @@ public sealed class UsageStore : IDisposable
     // MARK: Companion feed (the macOS AppDelegate's updateCompanion / onStoreRefreshed)
 
     /// <summary>Usage → companion (EXP ledger and display state). Call on every <see cref="Changed"/>.</summary>
-    public void UpdateCompanion(CompanionStore companion) =>
-        companion.Update(TodayTokensByProvider, TodayKey, MonthTotalTokens, BurnTier, IsLimitWarning, HasUsageData);
+    public void UpdateCompanion(CompanionStore companion)
+    {
+        companion.AlwaysFacesBack = AlwaysFacesBack;
+        companion.Update(TodayTokensByProvider, TodayKey, MonthTotalTokens, BurnTier, IsLimitWarning, HasUsageData,
+            TimeSinceLastUsage());
+    }
 
     /// <summary>Companion update plus candy grant, at the point the limits are fresh. Call from <see cref="OnRefresh"/>.</summary>
     public void FeedCompanionAfterRefresh(CompanionStore companion)
@@ -802,21 +901,27 @@ public sealed class UsageStore : IDisposable
         _showTokensInMenu = s.GetBool("showTokensInMenu") ?? true;
         _showCostInMenu = s.GetBool("showCostInMenu") ?? false;
         _showLimitInMenu = s.GetBool("showLimitInMenu") ?? false;
+        _showGrowthInMenu = s.GetBool("showGrowthInMenu") ?? false;
         _limitDisplayMode = s.GetString("limitDisplayMode") == "remaining"
             ? LimitPace.LimitDisplayMode.Remaining : LimitPace.LimitDisplayMode.Used;
+        _dailyTrendWindow = DailyTrendWindows.FromRawValue(s.GetString("dailyTrendWindow")) ?? DailyTrendWindow.D14;
         _menuLimitColorMode = s.GetString("menuLimitColorMode") switch
         {
             "attention" => MenuLimitColorMode.Attention,
             "off" => MenuLimitColorMode.Off,
             _ => MenuLimitColorMode.Gauge,
         };
-        _limitNotifications = s.GetBool("limitNotifications") ?? true;
+        _activityVisualization = ActivityVisualizations.FromRawValue(s.GetString("activityVisualization"))
+            ?? ActivityVisualizations.Default;
+        _limitNotifications =s.GetBool("limitNotifications") ?? true;
         _companionNotifications = s.GetBool("companionNotifications") ?? true;
         _updateNotificationsEnabled = s.GetBool("updateNotificationsEnabled") ?? true;
         _statusChecksEnabled = s.GetBool("statusChecksEnabled") ?? true;
         _floatingPetEnabled = s.GetBool("floatingPetEnabled") ?? false;
+        _alwaysFacesBack = s.GetBool("alwaysFacesBack") ?? false;
         _floatingPetSize = s.GetDouble("floatingPetSize") ?? 96;
         _floatingPetBubbleAlerts = s.GetBool("floatingPetBubbleAlerts") ?? true;
+        _floatingPetAgentActivity = s.GetBool("floatingPetAgentActivity") ?? true;
         // Power saver by default: the frame rate of the fixed cap before this setting existed.
         _animationQuality = AnimationQualities.FromRawValue(s.GetString("animationQuality")) ?? AnimationQuality.PowerSaver;
         _additionalClaudeConfigDirs = s.GetString(ClaudeAccountRoots.DefaultsKey) ?? "";
@@ -1030,6 +1135,7 @@ public sealed class UsageStore : IDisposable
                 WeekTotal = previous?.WeekTotal,
                 MonthTotal = previous?.MonthTotal,
                 MonthDaily = previous?.MonthDaily,
+                RecentDaily = previous?.RecentDaily,
                 FetchedAt = fetchedAt,
                 ReportsCost = provider.ReportsCost,
                 LastUsage = previous?.LastUsage,
@@ -1067,8 +1173,10 @@ public sealed class UsageStore : IDisposable
             }
         }));
         var enrichedAt = _now();
+        var failedEnrichment = new HashSet<string>();
         foreach (var (provider, enrichment) in enrichments)
         {
+            if (!enrichment.PeriodsOK) failedEnrichment.Add(provider.Id);
             var index = _snapshots.FindIndex(s => s.ProviderID == provider.Id);
             if (index < 0)
             {
@@ -1082,6 +1190,7 @@ public sealed class UsageStore : IDisposable
                     WeekTotal = enrichment.PeriodsOK ? enrichment.WeekTotal : null,
                     MonthTotal = enrichment.PeriodsOK ? enrichment.MonthTotal : null,
                     MonthDaily = enrichment.PeriodsOK ? enrichment.MonthDaily : null,
+                    RecentDaily = enrichment.PeriodsOK ? enrichment.RecentDaily : null,
                     FetchedAt = enrichedAt,
                     ReportsCost = provider.ReportsCost,
                     LastUsage = enrichment.PeriodsOK ? enrichment.LastUsage : null,
@@ -1097,10 +1206,13 @@ public sealed class UsageStore : IDisposable
                     WeekTotal = enrichment.WeekTotal,
                     MonthTotal = enrichment.MonthTotal,
                     MonthDaily = enrichment.MonthDaily,
+                    RecentDaily = enrichment.RecentDaily,
                     LastUsage = enrichment.LastUsage,
                 };
             _snapshots[index] = updated;
         }
+        _failedEnrichmentIDs = failedEnrichment;
+        LastUsageKnown = true;
         // A successful empty enrichment removes obsolete carriers; failed reads retained their history above.
         _snapshots.RemoveAll(s => !s.HasDisplayableUsage(enrichedAt));
         // Keep tabs in provider registration order.

@@ -30,6 +30,26 @@ public static class DailyTrendMetrics
         return Math.Max(Baseline, ratio * Track);
     }
 
+    /// <summary>Columns for the selected window: the calendar month, or the last N days ending today.</summary>
+    public static List<DailyTrendColumn> Columns(IReadOnlyList<DailyUsage> series, string today,
+        DailyTrendWindow window = DailyTrendWindow.Month) =>
+        window.DayCount() is { } days ? RollingColumns(series, today, days) : MonthColumns(series, today);
+
+    /// <summary>Rolling window columns (N−1 days ago … today). Every column is a day already reached, so none is future.</summary>
+    public static List<DailyTrendColumn> RollingColumns(IReadOnlyList<DailyUsage> series, string today, int count)
+    {
+        if (!DateTime.TryParseExact(today, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var todayDate))
+            return series.Select(d => new DailyTrendColumn(d.Date, d.TotalTokens, false)).ToList();
+        var tokensByDay = new Dictionary<string, long>();
+        foreach (var d in series) tokensByDay[d.Date] = tokensByDay.GetValueOrDefault(d.Date) + d.TotalTokens;
+        return Enumerable.Range(0, count).Reverse().Select(offset =>
+        {
+            var date = todayDate.AddDays(-offset).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            return new DailyTrendColumn(date, tokensByDay.GetValueOrDefault(date), false);
+        }).ToList();
+    }
+
     /// <summary>
     /// The calendar month (1st…last), not the series length: the series ends today, so sizing columns by it
     /// would stretch one bar across the row on the 1st. Days up to today missing from the series are 0;
@@ -60,19 +80,53 @@ public static class DailyTrendMetrics
     public static bool ShowsPeak(IReadOnlyList<DailyTrendColumn> columns) => columns.Count(c => c.Tokens > 0) > 1;
 
     /// <summary>
-    /// Label the 1st, every 7th day, and today. Today always gets one (a low bar is a one-line tick, so the
-    /// number is the only clue where today is); a regular label within 2 days of today is dropped, since at
-    /// ~9 pt per column "21 22" would read as one number.
+    /// Today always gets a label (a low bar is a one-line tick, so the number is the only clue where today is).
+    /// Month: the 1st and every 7th day. 7 days: the midpoint (3 days back). 14/21 days: every 7 days back.
+    /// The 1st of a month is a landmark in the rolling windows. A label within 2 days of today or of a shown
+    /// 1st is dropped, since "1 2" or "21 22" side by side would read as one number.
     /// </summary>
-    public static string? AxisLabel(string date, string today, int labelInterval = 7, int minimumSeparation = 3)
+    public static string? AxisLabel(string date, string today, DailyTrendWindow window = DailyTrendWindow.Month,
+        int labelInterval = 7, int minimumSeparation = 3)
     {
         if (!int.TryParse(date.AsSpan(Math.Max(0, date.Length - 2)), out var dayOfMonth)) return null;
         if (date == today) return dayOfMonth.ToString();
-        var isRegular = dayOfMonth == 1 || (labelInterval > 0 && dayOfMonth % labelInterval == 0);
-        if (!isRegular) return null;
-        if (int.TryParse(today.AsSpan(Math.Max(0, today.Length - 2)), out var todayOfMonth)
-            && Math.Abs(dayOfMonth - todayOfMonth) < minimumSeparation) return null;
-        return dayOfMonth.ToString();
+        var label = dayOfMonth.ToString();
+        switch (window)
+        {
+            case DailyTrendWindow.Month:
+            {
+                var isRegular = dayOfMonth == 1 || (labelInterval > 0 && dayOfMonth % labelInterval == 0);
+                if (!isRegular) return null;
+                if (int.TryParse(today.AsSpan(Math.Max(0, today.Length - 2)), out var todayOfMonth)
+                    && Math.Abs(dayOfMonth - todayOfMonth) < minimumSeparation) return null;
+                return label;
+            }
+            case DailyTrendWindow.D7:
+            {
+                if (LocalUsageReader.DayDifference(date, today) is not { } diff || diff <= 0) return null;
+                // The midpoint is 3 days back: the 1st shows only when it is that midpoint or clear of it and of today.
+                if (dayOfMonth == 1)
+                    return diff >= minimumSeparation && (diff == 3 || Math.Abs(diff - 3) >= minimumSeparation) ? label : null;
+                return diff == 3 && diff >= minimumSeparation ? label : null;
+            }
+            default:
+            {
+                if (LocalUsageReader.DayDifference(date, today) is not { } diff || diff <= 0) return null;
+                if (dayOfMonth == 1) return diff >= minimumSeparation ? label : null;
+                if (diff % 7 != 0 || diff < minimumSeparation) return null;
+                // A shown 1st of this month takes precedence: drop a regular mark right after it…
+                var diffToFirst = diff - (dayOfMonth - 1);
+                if (diffToFirst >= minimumSeparation && Math.Abs(dayOfMonth - 1) < minimumSeparation) return null;
+                // …or right before the next month's 1st.
+                if (int.TryParse(date.AsSpan(0, 4), out var year) && int.TryParse(date.AsSpan(5, 2), out var month)
+                    && month is >= 1 and <= 12)
+                {
+                    var daysToNextFirst = DateTime.DaysInMonth(year, month) - dayOfMonth + 1;
+                    if (diff - daysToNextFirst >= minimumSeparation && daysToNextFirst < minimumSeparation) return null;
+                }
+                return label;
+            }
+        }
     }
 
     /// <summary>Saturday/Sunday. (macOS asks the user's calendar; .NET has no locale weekend API.)</summary>
@@ -92,35 +146,47 @@ public static class DailyTrendMetrics
 }
 
 /// <summary>
-/// Port of <c>MonthDailyTrend</c>: this month's daily bars under the period totals. Shown only when some day
-/// has usage (<c>peak &gt; 0</c>) — the producer fills unused days with 0, so gating on the series being
-/// non-empty would show an empty chart to someone who never used anything this month (#56 class).
-/// Windows has a single provider, so the per-provider stacking and legend of the macOS view are not ported.
+/// Port of <c>MonthDailyTrend</c>: the daily bars of the selected window (7/14/21 days or this month) under the
+/// period totals. Bars show only when some day has usage (<c>peak &gt; 0</c>) — the producer fills unused days
+/// with 0, so gating on the series being non-empty would show an empty chart to someone who never used anything
+/// (#56 class). An empty window keeps just its caption when another window has history, so the selector stays
+/// reachable. Windows has a single provider, so the per-provider stacking and legend of the macOS view are not ported.
 /// </summary>
 public static class MonthDailyTrend
 {
-    public static FrameworkElement? Build(IReadOnlyList<DailyUsage> series, bool showsCost, string today, L l)
+    public static FrameworkElement? Build(IReadOnlyList<DailyUsage> series, bool showsCost, string today, L l,
+        DailyTrendWindow window, Action<DailyTrendWindow> selectWindow, bool hasAvailableHistory,
+        FrameworkElement? trailing = null)
     {
-        var columns = DailyTrendMetrics.MonthColumns(series, today);
+        var columns = DailyTrendMetrics.Columns(series, today, window);
         var peak = columns.Count == 0 ? 0 : columns.Max(c => c.Tokens);
-        if (peak <= 0) return null;
+        if (peak <= 0)
+            return ShouldShowSurface(peak, hasAvailableHistory)
+                ? CaptionRow(series, today, showsCost, l, window, selectWindow, 0, false, trailing).Padding(0, 4, 0, 0)
+                : null;
         var trend = Ui.VStack(3,
-            CaptionRow(series, today, showsCost, l, peak, DailyTrendMetrics.ShowsPeak(columns)),
+            CaptionRow(series, today, showsCost, l, window, selectWindow, peak, DailyTrendMetrics.ShowsPeak(columns), trailing),
             BarRow(columns, peak, series, showsCost, today, l),
             WeekendTickRow(columns),
-            AxisRow(columns, today));
+            AxisRow(columns, today, window));
         return trend.Padding(0, 4, 0, 0);
     }
+
+    /// <summary>Bars when the window has usage; otherwise the caption alone while another window has history.</summary>
+    public static bool ShouldShowSurface(long peak, bool hasAvailableHistory) => peak > 0 || hasAvailableHistory;
 
     /// <summary>
     /// Caption + today's readout + peak. The readout does not follow the hover (the tooltip shows other days):
     /// opening the popover shows today's total at once. Bars are relative, so the peak gives the scale.
+    /// <paramref name="trailing"/> sits at the right end — the visualization switch dots (<c>PageDots</c>), passed as a
+    /// slot so the bars never reference the other visualizations.
     /// </summary>
     private static FrameworkElement CaptionRow(IReadOnlyList<DailyUsage> series, string today, bool showsCost, L l,
-        long peak, bool showsPeak)
+        DailyTrendWindow window, Action<DailyTrendWindow> selectWindow, long peak, bool showsPeak,
+        FrameworkElement? trailing)
     {
         var row = Ui.HStack(5,
-            Ui.Text(l.DailyTrend, Theme.FontSize.Caption, Theme.Keys.Tertiary),
+            WindowMenu(l, window, selectWindow),
             Ui.Text(DailyTrendMetrics.Readout(series, today, showsCost, l), Theme.FontSize.Caption, Theme.Keys.Secondary,
                 FontWeights.Medium, monospacedDigits: true),
             Ui.Spacer());
@@ -130,7 +196,20 @@ public static class MonthDailyTrend
             row.Children.Add(Ui.Text(TokenFormatter.Compact(peak), Theme.FontSize.Caption2, Theme.Keys.Secondary,
                 FontWeights.SemiBold, monospacedDigits: true));
         }
+        if (trailing != null) row.Children.Add(trailing);
         return row.BaselineAligned();
+    }
+
+    /// <summary>The caption is the window's title and a borderless menu of the four windows (macOS <c>Menu</c>).</summary>
+    private static FrameworkElement WindowMenu(L l, DailyTrendWindow window, Action<DailyTrendWindow> selectWindow)
+    {
+        var label = Ui.HStack(3,
+            Ui.Text(l.Title(window), Theme.FontSize.Caption, Theme.Keys.Tertiary),
+            Ui.Icon(DexUi.Glyph.ChevronDown, 7, Theme.Keys.Tertiary));
+        label.OnClick(() => DexUi.ShowMenu(label, DexUi.Menu(Enum.GetValues<DailyTrendWindow>()
+            .Select(w => (l.Title(w), w == window, (Action)(() => selectWindow(w)))))));
+        System.Windows.Automation.AutomationProperties.SetName(label, l.DailyTrendPeriod);
+        return label;
     }
 
     private static FrameworkElement BarRow(List<DailyTrendColumn> columns, long peak, IReadOnlyList<DailyUsage> series,
@@ -177,7 +256,6 @@ public static class MonthDailyTrend
                 if (!isToday) bar.Opacity = 0.8;
                 if (tooltip != null) overlay.Children.Remove(tooltip);
                 tooltip = TooltipCard(column.Date, series, showsCost, l);
-                if (tooltip == null) return;
                 overlay.Children.Add(tooltip);
                 tooltip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 var width = bars.ActualWidth;
@@ -203,10 +281,14 @@ public static class MonthDailyTrend
         return host;
     }
 
-    /// <summary>Port of <c>DailyTrendHover.info</c> + <c>tooltipCard</c> (single provider: no per-provider rows).</summary>
-    private static Border? TooltipCard(string day, IReadOnlyList<DailyUsage> series, bool showsCost, L l)
+    /// <summary>
+    /// Port of <c>DailyTrendHover.info</c> + <c>tooltipCard</c> (single provider: no per-provider rows). A column
+    /// missing from the series (a rolling window reaching past a provider's data) reads as a zero day.
+    /// </summary>
+    private static Border TooltipCard(string day, IReadOnlyList<DailyUsage> series, bool showsCost, L l)
     {
-        if (series.FirstOrDefault(d => d.Date == day) is not { } total) return null;
+        var total = series.FirstOrDefault(d => d.Date == day)
+            ?? new DailyUsage(day, 0, 0, 0, 0, 0, 0, CostCoverage: CostCoverage.Empty);
         var row = Ui.HStack(5,
             Ui.Text(HomeFormat.DayStamp(day, l.Lang), Theme.FontSize.Caption, weight: FontWeights.SemiBold, monospacedDigits: true),
             Ui.Text(TokenFormatter.Compact(total.TotalTokens), Theme.FontSize.Caption, monospacedDigits: true),
@@ -245,15 +327,15 @@ public static class MonthDailyTrend
     }
 
     /// <summary>
-    /// Date axis. Columns are ~9 pt and two digits do not fit, so only the 1st, every 7th day and today are
-    /// labelled; the other columns keep empty slots so labels stay under their bars.
+    /// Date axis. Month columns are ~9 pt and two digits do not fit, so only a few days are labelled (see
+    /// <see cref="DailyTrendMetrics.AxisLabel"/>); the other columns keep empty slots so labels stay under their bars.
     /// </summary>
-    private static FrameworkElement AxisRow(List<DailyTrendColumn> columns, string today)
+    private static FrameworkElement AxisRow(List<DailyTrendColumn> columns, string today, DailyTrendWindow window)
     {
         var row = new EqualColumns { Spacing = DailyTrendMetrics.Spacing };
         foreach (var column in columns)
         {
-            if (DailyTrendMetrics.AxisLabel(column.Date, today) is { } label)
+            if (DailyTrendMetrics.AxisLabel(column.Date, today, window) is { } label)
             {
                 var key = column.Date == today ? Theme.Keys.Accent : column.IsFuture ? Theme.Keys.Tertiary : Theme.Keys.Secondary;
                 var text = Ui.Text(label, Theme.FontSize.Caption2, key, monospacedDigits: true);

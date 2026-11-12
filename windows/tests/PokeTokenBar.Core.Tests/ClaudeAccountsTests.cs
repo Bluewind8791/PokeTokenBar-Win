@@ -573,11 +573,56 @@ public sealed class LimitModelTests
     public void ProgressDetail(long used, long total, string expected) =>
         Assert.Equal(expected, LimitPace.ProgressDetail(used, total));
 
+    /// <summary>The plan label: the profile's name first, else subscriptionType + rateLimitTier, with the Max
+    /// rename (Max 5x → Max, Max 20x → Ultra) applied (#463). Every combination: profile name wins, blank name
+    /// falls back, max × 20x / 5x / unknown / no multiplier / no tier, pro, free, no subscription.</summary>
+    [Fact]
+    public void PlanDisplayFollowsTheProfileNameThenTheRenamedTiers()
+    {
+        var status = new LimitStatus { SubscriptionType = "max", RateLimitTier = "default_claude_max_20x" };
+        Assert.Equal("Ultra", status.PlanDisplay);
+
+        status.RateLimitTier = "default_claude_max_5x";
+        Assert.Equal("Max", status.PlanDisplay);
+        // No multiplier token: Max stays Max; the rename does not lean on multiplier parsing.
+        status.RateLimitTier = "default_claude_max";
+        Assert.Equal("Max", status.PlanDisplay);
+        status.RateLimitTier = null;
+        Assert.Equal("Max", status.PlanDisplay);
+        // An unknown multiplier keeps its number instead of inventing a name.
+        status.RateLimitTier = "default_claude_max_10x";
+        Assert.Equal("Max 10x", status.PlanDisplay);
+
+        // The server's name wins over the tier.
+        status.RateLimitTier = "default_claude_max_20x";
+        status.PlanDisplayName = "Ultra plan";
+        Assert.Equal("Ultra plan", status.PlanDisplay);
+        // Empty and blank names fall back to the tier.
+        status.PlanDisplayName = "";
+        Assert.Equal("Ultra", status.PlanDisplay);
+        status.PlanDisplayName = "   ";
+        Assert.Equal("Ultra", status.PlanDisplay);
+        status.PlanDisplayName = null;
+        Assert.Equal("Ultra", status.PlanDisplay);
+
+        // The name comes from the profile, not the credential, so it shows without credential fields.
+        status.SubscriptionType = null;
+        status.RateLimitTier = null;
+        status.PlanDisplayName = "Ultra";
+        Assert.Equal("Ultra", status.PlanDisplay);
+        status.PlanDisplayName = null;
+        Assert.Null(status.PlanDisplay);
+
+        // Tiers that were not renamed keep their multiplier.
+        Assert.Equal("Pro 2x", new LimitStatus { SubscriptionType = "pro", RateLimitTier = "default_claude_pro_2x" }.PlanDisplay);
+        Assert.Equal("Free", new LimitStatus { SubscriptionType = "free" }.PlanDisplay);
+    }
+
     [Fact]
     public void PlanAndAccountLabels()
     {
         var status = new LimitStatus { SubscriptionType = "max", RateLimitTier = "default_claude_max_20x" };
-        Assert.Equal("Max 20x", status.PlanDisplay);
+        Assert.Equal("Ultra", status.PlanDisplay);
         Assert.Equal("Pro", (status with { SubscriptionType = "pro", RateLimitTier = "default_claude_pro" }).PlanDisplay);
         Assert.Null(new LimitStatus().PlanDisplay);
         Assert.Equal("a@b.c · Team", new LimitStatus { AccountEmail = "a@b.c", AccountOrganizationName = "Team" }.AccountDisplay);

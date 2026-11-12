@@ -126,16 +126,28 @@ def cs_escape_text(s, interpolated):
     return ''.join(out)
 
 
+# Swift parameter names that are C# keywords (`notifEvolveBody(from old:, to new:)`) get an `@`.
+CS_KEYWORDS = {'new', 'default', 'object', 'string', 'base', 'out', 'ref', 'in', 'is', 'as', 'fixed', 'checked'}
+
+
+def cs_ident(name):
+    return '@' + name if name in CS_KEYWORDS else name
+
+
 PARTICLE = re.compile(r'^KoreanParticle\.(subject|object|direction)\.attach\(to:\s*(\w+)\)$')
+MEMBER_CALL = re.compile(r'^([a-z]\w*)\((\w+)\)$')  # another member of L, e.g. regionName(r)
 
 
 def cs_expr(expr):
     expr = expr.strip()
     if re.fullmatch(r'[a-z]\w*', expr):
-        return expr
+        return cs_ident(expr)
     m = PARTICLE.match(expr)
     if m:
-        return 'KoreanParticle.%s.Attach(%s)' % (m.group(1).capitalize(), m.group(2))
+        return 'KoreanParticle.%s.Attach(%s)' % (m.group(1).capitalize(), cs_ident(m.group(2)))
+    m = MEMBER_CALL.match(expr)
+    if m:
+        return '%s(%s)' % (pascal(m.group(1)), m.group(2))
     raise ValueError('unsupported interpolation: ' + expr)
 
 
@@ -239,7 +251,7 @@ def convert_params(params):
         m = re.fullmatch(r'(?:(\w+) )?(\w+): (\S+)', p)
         if not m or m.group(3) not in TYPE_MAP:
             return None
-        out.append('%s %s' % (TYPE_MAP[m.group(3)], m.group(2)))
+        out.append('%s %s' % (TYPE_MAP[m.group(3)], cs_ident(m.group(2))))
     return ', '.join(out)
 
 

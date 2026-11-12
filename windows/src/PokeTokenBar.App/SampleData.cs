@@ -90,6 +90,13 @@ public static partial class SampleData
                 days.Add(Day(LocalUsageReader.LocalDay(d), shape[i % shape.Length]));
             days[^1] = Day(days[^1].Date, 1_980_000);
             var month = days.Sum(x => x.TotalTokens);
+            // The rolling trend windows reach back 21 days; days of this month repeat the month series.
+            var recent = new List<DailyUsage>();
+            for (var d = LocalUsageReader.StartOfRollingWindow(LocalUsageReader.MaxDailyTrendWindowDays, Now); d <= Now; d = d.AddDays(1))
+            {
+                var key = LocalUsageReader.LocalDay(d);
+                recent.Add(days.FirstOrDefault(x => x.Date == key) ?? Day(key, shape[(d.Day + 3) % shape.Length]));
+            }
             return Task.FromResult(new ProviderEnrichment
             {
                 ActiveBlock = new BlockUsage("block-sample", Iso8601Parser.Format(Now.AddHours(-2)), Iso8601Parser.Format(Now.AddHours(3)),
@@ -98,6 +105,7 @@ public static partial class SampleData
                 WeekTotal = new PeriodUsage("w", 12_200_000, 39.10, CostCoverage.Estimate),
                 MonthTotal = new PeriodUsage(LocalUsageReader.MonthKey(Now), month, month * 3.2e-6, CostCoverage.Estimate),
                 MonthDaily = days,
+                RecentDaily = recent,
                 PeriodsOK = true,
                 LastUsage = Now,
             });

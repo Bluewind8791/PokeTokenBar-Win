@@ -5,8 +5,9 @@ namespace PokeTokenBar.Core;
 // Swift relies on value semantics ("var s = state; s.x = …" never touches the original), so every
 // place that copies a Swift struct and then mutates the copy calls Clone() here.
 
-/// <summary>Display state, decided by usage/burn (sprite motion strength and status line).</summary>
-public enum CompanionStateKind { Egg, Idle, Working, Focus, Tired, Sleep, LevelUp }
+/// <summary>Display state, decided by usage/burn (sprite motion strength and status line).
+/// <c>Sulk</c>: no token usage for <see cref="PokemonBalance.SulkAfterIdle"/> — the companion turns its back.</summary>
+public enum CompanionStateKind { Egg, Idle, Working, Focus, Tired, Sleep, Sulk, LevelUp }
 
 /// <summary>Injectable randomness, the counterpart of Swift's <c>RandomNumberGenerator</c>.</summary>
 public interface IRandomNumberGenerator
@@ -91,6 +92,8 @@ public static class RarityExtensions
 /// </summary>
 public static class PokemonBalance
 {
+    /// <summary>With no token usage for this long the companion turns its back (<see cref="CompanionStateKind.Sulk"/>).</summary>
+    public static readonly TimeSpan SulkAfterIdle = TimeSpan.FromHours(3);
     /// <summary>Tokens needed before the egg hatches (anticipation instead of an instant hatch). Overflow carries over.</summary>
     public const long EggHatchThreshold = 5_000_000;
     public const int RepeatGrowthMultiplier = 2;
@@ -510,6 +513,12 @@ public static class CollectionWeight
         isCollected ? Math.Max(1, weight / 2) : Math.Max(1, weight);
 }
 
+/// <summary>
+/// Prayers said over an egg, carried onto the individual that hatched from it (#466). Purely cosmetic: no roll
+/// (species, rarity, shiny, nature, form, profile) ever reads it. <c>Count</c> is a Swift <c>Int</c> (64-bit).
+/// </summary>
+public sealed record PrayerRecord(long Count);
+
 /// <summary>The Pokémon currently being raised.</summary>
 public sealed class MonState
 {
@@ -538,6 +547,8 @@ public sealed class MonState
     public int? DittoDisguise { get; set; }
     /// <summary>Whether the disguise has been revealed.</summary>
     public bool DittoRevealed { get; set; }
+    /// <summary>Prayers said over the egg this individual hatched from. Null = none (and every pre-prayer save).</summary>
+    public PrayerRecord? Prayers { get; set; }
 
     /// <summary>Whether the screen may show it shiny: a disguised Ditto hides it until revealed.
     /// Every display path uses this.</summary>
@@ -553,7 +564,7 @@ public sealed class MonState
     public MonState(int baseID, IEnumerable<int> pathIDs, IEnumerable<int>? plannedPathIDs = null, int stageIndex = 0,
         long usedAtStage = 0, Rarity rarity = Rarity.Common, int totalForms = 1, bool isShiny = false,
         PokemonNature? nature = null, PokemonProfile? profile = null, bool hasGrowthBoost = false,
-        int? dittoDisguise = null, bool dittoRevealed = false, PokemonForm? form = null)
+        int? dittoDisguise = null, bool dittoRevealed = false, PokemonForm? form = null, PrayerRecord? prayers = null)
     {
         BaseID = baseID;
         PathIDs = pathIDs.ToList();
@@ -569,6 +580,7 @@ public sealed class MonState
         HasGrowthBoost = hasGrowthBoost;
         DittoDisguise = dittoDisguise;
         DittoRevealed = dittoRevealed;
+        Prayers = prayers;
         Form = PokemonForm.ResolvedForLine(baseID, form);
     }
 
@@ -588,6 +600,7 @@ public sealed class MonState
         HasGrowthBoost = o.HasGrowthBoost;
         DittoDisguise = o.DittoDisguise;
         DittoRevealed = o.DittoRevealed;
+        Prayers = o.Prayers;
     }
 
     public MonState Clone() => new(this);
@@ -624,6 +637,8 @@ public sealed class DexEntry
     /// leaving releases out would make species disappear from a screen that promises to only grow.
     /// </summary>
     public DateTimeOffset? ReleasedAt { get; set; }
+    /// <summary>Prayers said over the egg this individual hatched from. Null = none (and every pre-prayer save).</summary>
+    public PrayerRecord? Prayers { get; set; }
 
     public bool NeedsNamesRefresh =>
         NamesVersion != CurrentNamesVersion
@@ -635,7 +650,7 @@ public sealed class DexEntry
     public DexEntry(int baseID, int finalID, IEnumerable<int> chainOrder, Rarity rarity, DateTimeOffset? caughtAt,
         bool isShiny = false, PokemonNature? nature = null, PokemonProfile? profile = null,
         Dictionary<int, Dictionary<string, string>>? names = null, DateTimeOffset? releasedAt = null,
-        PokemonForm? form = null, string? id = null)
+        PokemonForm? form = null, string? id = null, PrayerRecord? prayers = null)
     {
         Id = id ?? Guid.NewGuid().ToString().ToUpperInvariant();
         BaseID = baseID;
@@ -650,6 +665,7 @@ public sealed class DexEntry
         NamesVersion = ChainOrder.All(c => names != null && names.TryGetValue(c, out var n) && n.Count > 0)
             ? CurrentNamesVersion : null;
         ReleasedAt = releasedAt;
+        Prayers = prayers;
         Form = PokemonForm.ResolvedForLine(baseID, form);
     }
 
@@ -668,6 +684,7 @@ public sealed class DexEntry
         Names = CloneNames(o.Names);
         NamesVersion = o.NamesVersion;
         ReleasedAt = o.ReleasedAt;
+        Prayers = o.Prayers;
     }
 
     public DexEntry Clone() => new(this);
@@ -698,6 +715,9 @@ public sealed class CompanionState
     public int? PendingHatchID { get; set; }
     /// <summary>The form is chosen with the species so prefetch warms the exact sprite that will hatch.</summary>
     public PokemonForm? PendingForm { get; set; }
+    /// <summary>Prayers said over the current egg (null until the first one). Egg-scoped like <see cref="EggUsage"/>:
+    /// reset by <see cref="ResetEggPrayers"/> whenever a new egg starts and copied onto the hatched individual.</summary>
+    public PrayerRecord? EggPrayers { get; set; }
     /// <summary>
     /// Today's per-provider crediting baselines, keyed by <c>UsageProvider.id</c>.
     /// Null means an old save that only had the aggregate <c>claimedTodayTokens</c> and has not been seeded
@@ -728,6 +748,11 @@ public sealed class CompanionState
     public Dictionary<string, string> CandyWindowEpoch { get; set; } = [];
     /// <summary>First-run seeding done: windows already at 100% right after the update grant nothing retroactively.</summary>
     public bool CandyFeatureSeeded { get; set; }
+    /// <summary>Generation (region) dex-completion badge keys already announced, so a restart does not announce
+    /// them again (#442). Kept for macOS saves until the feature is ported.</summary>
+    public HashSet<string> NotifiedDexCompletions { get; set; } = [];
+    /// <summary>Completion tracking seeded on first run: generations completed before the feature announce nothing.</summary>
+    public bool DexCompletionsSeeded { get; set; }
 
     public CompanionState() { }
 
@@ -752,7 +777,13 @@ public sealed class CompanionState
         CandyGrantTier = new(CandyGrantTier),
         CandyWindowEpoch = new(CandyWindowEpoch),
         CandyFeatureSeeded = CandyFeatureSeeded,
+        EggPrayers = EggPrayers,
+        NotifiedDexCompletions = [.. NotifiedDexCompletions],
+        DexCompletionsSeeded = DexCompletionsSeeded,
     };
+
+    /// <summary>Forget the prayers of the previous egg. Call on every path that starts a new egg (or consumes this one).</summary>
+    public void ResetEggPrayers() => EggPrayers = null;
 
     private static IEnumerable<int> ReachedPath(MonState a) => a.PathIDs.Take(a.StageIndex + 1);
 

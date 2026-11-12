@@ -36,6 +36,9 @@ public static class Theme
         public const string Gray = "Theme.Gray";
         public const string ControlBackground = "Theme.ControlBackground";
         public const string ControlSelected = "Theme.ControlSelected";
+        /// <summary>The activity grid's shades, index = level 0…4 (<c>ActivityHeatmapMetrics.contributionGreens</c>).</summary>
+        public static readonly string[] ContributionGreens =
+            [.. Enumerable.Range(0, 5).Select(level => $"Theme.ContributionGreen{level}")];
     }
 
     /// <summary>SwiftUI macOS text styles in points (= WPF DIPs at 100%).</summary>
@@ -112,6 +115,12 @@ public static class Theme
             [Keys.ControlBackground] = Ink(dark ? (byte)0x1A : (byte)0x0F),
             [Keys.ControlSelected] = dark ? C(0x5A5A5A) : C(0xFFFFFF),
         };
+        // The contribution-graph greens, light / dark: each appearance has its own scale so level 1 never melts
+        // into the background. Not the accent color, which would read as a provider color.
+        (uint Light, uint Dark)[] greens =
+            [(0xEBEDF0, 0x161B22), (0x9BE9A8, 0x0E4429), (0x40C463, 0x006D32), (0x30A14E, 0x26A641), (0x216E39, 0x39D353)];
+        for (var level = 0; level < greens.Length; level++)
+            map[Keys.ContributionGreens[level]] = C(dark ? greens[level].Dark : greens[level].Light);
         foreach (var (key, color) in map)
         {
             var brush = new SolidColorBrush(color);

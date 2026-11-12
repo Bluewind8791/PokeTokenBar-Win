@@ -110,6 +110,7 @@ public static class CompanionJson
         if (s.EggTier is { } tier) o["eggTier"] = tier.RawValue();
         if (s.PendingHatchID is { } pending) o["pendingHatchID"] = pending;
         if (s.PendingForm is { } pendingForm) o["pendingForm"] = pendingForm.RawValue;
+        if (s.EggPrayers is { } eggPrayers) o["eggPrayers"] = EncodePrayers(eggPrayers);
         if (s.ClaimedTodayTokensByProvider is { } claimed) o["claimedTodayTokensByProvider"] = LongMap(claimed);
         o["lastDate"] = s.LastDate;
         if (s.Active is { } active) o["active"] = EncodeMon(active);
@@ -124,8 +125,13 @@ public static class CompanionJson
         o["candyWindowEpoch"] = new JsonObject(s.CandyWindowEpoch.Select(kv =>
             KeyValuePair.Create(kv.Key, (JsonNode?)JsonValue.Create(kv.Value))));
         o["candyFeatureSeeded"] = s.CandyFeatureSeeded;
+        o["notifiedDexCompletions"] = new JsonArray(s.NotifiedDexCompletions.Order(StringComparer.Ordinal)
+            .Select(k => (JsonNode)JsonValue.Create(k)).ToArray());
+        o["dexCompletionsSeeded"] = s.DexCompletionsSeeded;
         return o;
     }
+
+    private static JsonObject EncodePrayers(PrayerRecord p) => new() { ["count"] = p.Count };
 
     public static JsonObject EncodeMon(MonState m)
     {
@@ -146,6 +152,7 @@ public static class CompanionJson
         o["hasGrowthBoost"] = m.HasGrowthBoost;
         if (m.DittoDisguise is { } disguise) o["dittoDisguise"] = disguise;
         o["dittoRevealed"] = m.DittoRevealed;
+        if (m.Prayers is { } prayers) o["prayers"] = EncodePrayers(prayers);
         return o;
     }
 
@@ -169,6 +176,7 @@ public static class CompanionJson
                 kv.Key.ToString(CultureInfo.InvariantCulture), (JsonNode?)StringMap(kv.Value))));
         if (e.NamesVersion is { } version) o["namesVersion"] = version;
         if (e.ReleasedAt is { } released) o["releasedAt"] = EncodeDate(released, dates);
+        if (e.Prayers is { } prayers) o["prayers"] = EncodePrayers(prayers);
         return o;
     }
 
@@ -261,8 +269,21 @@ public static class CompanionJson
         s.CandyGrantTier = Lenient(() => ReqMap(c, "candyGrantTier", ReadInt), []);
         s.CandyWindowEpoch = Lenient(() => ReqMap(c, "candyWindowEpoch", ReadString), []);
         s.CandyFeatureSeeded = Lenient(() => ReqBool(c, "candyFeatureSeeded"), false);
+        s.EggPrayers = OptPrayers(c);
+        s.NotifiedDexCompletions = Lenient(() => ReqArray(c, "notifiedDexCompletions", ReadString).ToHashSet(), []);
+        s.DexCompletionsSeeded = Lenient(() => ReqBool(c, "dexCompletionsSeeded"), false);
         return s;
     }
+
+    /// <summary><c>{"count": n}</c> under <c>prayers</c>/<c>eggPrayers</c>. Missing or broken = none (a broken
+    /// record never fails the Pokémon or the save).</summary>
+    private static PrayerRecord? OptPrayers(JsonElement c, string key = "eggPrayers") =>
+        Lenient(() =>
+        {
+            if (Opt(c, key) is not { } p) return null;
+            RequireObject(p);
+            return new PrayerRecord(ReqLong(p, "count"));
+        }, null);
 
     /// <summary>Backward-compatible decoding: hatch attributes missing from old saves get defaults.
     /// Empty pathIDs is corruption and throws, so the whole active Pokémon falls back to the egg.</summary>
@@ -287,7 +308,7 @@ public static class CompanionJson
         var dittoRevealed = OptBool(c, "dittoRevealed") ?? false;
         var form = DecodedForm(c, "form", "unownForm");
         var m = new MonState(baseID, pathIDs, plannedPathIDs, stageIndex, usedAtStage, rarity, totalForms, isShiny,
-            nature, profile, hasGrowthBoost, dittoDisguise, dittoRevealed, form);
+            nature, profile, hasGrowthBoost, dittoDisguise, dittoRevealed, form, OptPrayers(c, "prayers"));
         return m;
     }
 
@@ -313,7 +334,7 @@ public static class CompanionJson
         var releasedAt = OptDate(c, "releasedAt", dates);
         var form = DecodedForm(c, "form", "unownForm");
         var entry = new DexEntry(baseID, finalID, chainOrder, rarity, caughtAt, isShiny, nature, profile, names,
-            releasedAt, form, id)
+            releasedAt, form, id, OptPrayers(c, "prayers"))
         {
             NamesVersion = namesVersion,
         };

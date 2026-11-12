@@ -5,12 +5,20 @@ using PokeTokenBar.Core;
 
 namespace PokeTokenBar.App;
 
+/// <summary>What the floating pet reads from <see cref="PowerMonitor"/>; tests pass a fake.</summary>
+public interface IPowerStatus
+{
+    bool DisplayOn { get; }
+    bool LowPower { get; }
+    event Action? Changed;
+}
+
 /// <summary>
 /// Feeds <see cref="PowerState"/> from <c>WM_POWERBROADCAST</c> power-setting notifications on a hidden
 /// window: display on/off (macOS <c>screensDidSleep</c>/<c>screensDidWake</c>) and energy saver (macOS Low
 /// Power Mode). Windows sends each setting's current value at registration, so the state is right from launch.
 /// </summary>
-public sealed class PowerMonitor : IDisposable
+public sealed class PowerMonitor : IPowerStatus, IDisposable
 {
     private const int WmPowerBroadcast = 0x0218, PbtPowerSettingChange = 0x8013;
     /// <summary>While the display is off, how often to check for input that means it is on again.</summary>

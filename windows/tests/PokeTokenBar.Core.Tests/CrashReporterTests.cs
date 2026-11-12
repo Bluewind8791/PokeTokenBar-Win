@@ -37,4 +37,18 @@ public class CrashReporterTests
         Assert.False(File.Exists(marker));
         Assert.False(CrashReporter.Install("1.0.0", marker));
     }
+
+    [Fact]
+    public void SessionEndMarkThenExitMarkIsStillAClean()
+    {
+        using var dir = new TempDir();
+        var marker = Path.Combine(dir.Path, "PokeTokenBar.running");
+
+        CrashReporter.Install("1.0.0", marker);
+        // Windows restart: the session-end mark, then OnExit when the process lives long enough.
+        CrashReporter.MarkClean(marker, reason: "session ending: Shutdown");
+        CrashReporter.MarkClean(marker);
+
+        Assert.False(CrashReporter.Install("1.0.0", marker));
+    }
 }

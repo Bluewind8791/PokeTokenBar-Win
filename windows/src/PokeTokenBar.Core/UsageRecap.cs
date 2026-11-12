@@ -87,6 +87,40 @@ public sealed class UsageLedger : IEquatable<UsageLedger>
 
     public override bool Equals(object? obj) => Equals(obj as UsageLedger);
     public override int GetHashCode() => HashCode.Combine(CoveredSince, _tokensByDay.Count);
+
+    /// <summary>
+    /// The current run of active days. "Active" is any usage at all — the rule the recap's best
+    /// streak uses — so the two never disagree about a day.
+    /// <para>
+    /// A today without usage does not end the run; only a whole day without usage does. Otherwise
+    /// the run would read as broken every morning until the first prompt.
+    /// </para>
+    /// Days step through local calendar dates, never a fixed 86400 seconds: a DST day is 23 or 25 hours
+    /// long. The ledger reaches back past the 1st, so the run does not reset when a month starts.
+    /// </summary>
+    public UsageStreak CurrentStreak(DateTimeOffset now, RecapCalendar calendar)
+    {
+        bool IsActive(DateTime day) => Tokens(RecapCalendar.DayKey(day)) > 0;
+
+        var today = calendar.LocalDate(now);
+        var includesToday = IsActive(today);
+        var cursor = includesToday ? today : today.AddDays(-1);
+        var days = 0;
+        while (IsActive(cursor))
+        {
+            days++;
+            cursor = cursor.AddDays(-1);
+        }
+        return new UsageStreak(days, includesToday);
+    }
+}
+
+/// <summary>Port of <c>UsageStreak</c>: the run of consecutive days with usage that is still going.</summary>
+/// <param name="IncludesToday">Today is part of the run. False while today has no usage yet: the run ends
+/// yesterday and today's first use extends it.</param>
+public sealed record UsageStreak(int Days, bool IncludesToday)
+{
+    public static readonly UsageStreak None = new(0, false);
 }
 
 /// <summary>

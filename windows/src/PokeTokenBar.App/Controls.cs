@@ -306,6 +306,7 @@ public static class Buttons
 /// Port of <c>SpriteView</c> (CompanionView.swift): shows a species sprite fitted into a square
 /// (aspect kept, nearest-neighbour), animated GIF when requested, egg when <c>speciesID</c> is null;
 /// cached pixels show synchronously, then the exact variant loads; non-animated views can bob.
+/// <c>back</c> shows the back sprite (the companion turned away); a missing back sprite falls back to the front one.
 /// </summary>
 public sealed class SpriteView : Grid
 {
@@ -319,8 +320,14 @@ public sealed class SpriteView : Grid
     private readonly bool _bob;
     private readonly double _size;
 
+    /// <summary>Distance from the box top to the sprite's visible top (<see cref="SpriteVisibleTop"/>), one anchor for
+    /// the whole animation; null until an image shows.</summary>
+    public double? VisibleTop { get; private set; }
+    /// <summary>Raised when <see cref="VisibleTop"/> changes (a new image or animation loaded).</summary>
+    public event Action? VisibleTopChanged;
+
     public SpriteView(int? speciesID, double size = 84, bool bob = false, bool animated = false, bool shiny = false,
-        PokemonForm? form = null, TimeSpan? minFrameDelay = null, SpriteStore? store = null)
+        PokemonForm? form = null, TimeSpan? minFrameDelay = null, SpriteStore? store = null, bool back = false)
     {
         _store = store ?? SpriteStore.Shared;
         _bob = bob;
@@ -334,10 +341,10 @@ public sealed class SpriteView : Grid
         _frameTimer.Tick += (_, _) => NextFrame();
         Unloaded += (_, _) => _frameTimer.Stop();
         Loaded += (_, _) => { if (_frames.Count > 1) _frameTimer.Start(); };
-        _ = Load(speciesID, animated, shiny, form, minFrameDelay ?? TimeSpan.Zero);
+        _ = Load(speciesID, animated, shiny, form, minFrameDelay ?? TimeSpan.Zero, back);
     }
 
-    private async Task Load(int? speciesID, bool animated, bool shiny, PokemonForm? form, TimeSpan floor)
+    private async Task Load(int? speciesID, bool animated, bool shiny, PokemonForm? form, TimeSpan floor, bool back)
     {
         var gen = ++_generation;
         if (speciesID is not { } id)
@@ -346,14 +353,15 @@ public sealed class SpriteView : Grid
             if (gen != _generation) return;
             if (egg != null) Show(SpriteImages.ToBitmapSource(SpriteImages.CropToContent(egg)));
             else ShowEggGlyph();
+            UpdateVisibleTop();
             return;
         }
         var resolved = PokemonForm.ResolvedForSpecies(id, form);
         if (animated)
         {
-            foreach (var variant in shiny ? new[] { true, false } : new[] { false })
+            foreach (var (facingBack, variant) in SpriteStore.Variants(shiny, back))
             {
-                var gif = await _store.Data(id, animated: true, shiny: variant, form: resolved);
+                var gif = await _store.Data(id, animated: true, shiny: variant, form: resolved, back: facingBack);
                 if (gen != _generation) return;
                 if (gif == null) continue;
                 var decoded = GifDecoder.CapFrameRate(GifDecoder.Frames(gif), floor);
@@ -362,22 +370,38 @@ public sealed class SpriteView : Grid
                     _frames = decoded.Select(f => (SpriteImages.ToBitmapSource(f.Image), f.Delay)).ToList();
                     _frameIndex = 0;
                     Show(_frames[0].Image);
+                    UpdateVisibleTop();
                     _frameTimer.Interval = _frames[0].Delay;
                     if (IsLoaded) _frameTimer.Start();
                     return;
                 }
             }
         }
-        foreach (var variant in shiny ? new[] { true, false } : new[] { false })
+        foreach (var (facingBack, variant) in SpriteStore.Variants(shiny, back))
         {
-            var png = SpriteImages.Decode(await _store.Data(id, animated: false, shiny: variant, form: resolved));
+            var png = SpriteImages.Decode(await _store.Data(id, animated: false, shiny: variant, form: resolved, back: facingBack));
             if (gen != _generation) return;
             if (png == null) continue;
             Show(SpriteImages.ToBitmapSource(animated ? SpriteImages.CropToContent(png) : png));
+            UpdateVisibleTop();
             StartBob();
             return;
         }
         ShowEggGlyph();
+        UpdateVisibleTop();
+    }
+
+    /// <summary>One anchor for the whole animation (<see cref="SpriteVisibleTop.AnchorFraction"/>), so it does not jitter per frame.</summary>
+    private void UpdateVisibleTop()
+    {
+        var images = _frames.Count > 0 ? _frames.Select(f => f.Image).ToList()
+            : _image.Source is BitmapSource still ? [still] : new List<BitmapSource>();
+        double? top = images.Count == 0 ? null
+            : SpriteVisibleTop.Inset(_size, images[0].PixelWidth, images[0].PixelHeight,
+                SpriteVisibleTop.AnchorFraction(images.Select(SpriteVisibleTop.OpaqueTopFraction).ToList()));
+        if (top == VisibleTop) return;
+        VisibleTop = top;
+        VisibleTopChanged?.Invoke();
     }
 
     private void Show(BitmapSource image)
