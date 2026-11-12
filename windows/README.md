@@ -40,7 +40,8 @@ Windows 10 or 11, x64. The release zip is self-contained; no .NET install is nee
 ## Agent activity
 
 As on macOS, coding agents can drive the floating pet: it squashes while an agent works, asks for you in a speech
-bubble when it needs input, and runs next to your cursor when it finishes. The agent reports through a URL:
+bubble when it needs input, and shows a done bubble when it finishes (unlike macOS, it stays put). The agent reports
+through a URL:
 
 ```text
 poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
