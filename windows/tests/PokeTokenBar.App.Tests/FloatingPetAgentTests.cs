@@ -12,11 +12,102 @@ namespace PokeTokenBar.App.Tests;
 
 /// <summary>
 /// Port of FloatingPetAgentTests.swift (#457, with the #466 additions): the pure helpers behind the floating pet's agent
-/// reactions. Unlike macOS, the pet never runs to the cursor on done, so the run tests are not ported.
+/// reactions. Coordinates are WPF's (DIPs, y down), so "below" the cursor is a larger y than on macOS.
 /// </summary>
 public class FloatingPetAgentTests
 {
+    // MARK: Home persistence
+
+    /// <summary>The run to the cursor must never become the saved home; a drag during it must.</summary>
+    [Fact]
+    public void OnlyHomeOrADragPersistsTheOrigin()
+    {
+        Assert.Equal((C.RunPhase.Home, true), C.ResolveMove(C.RunPhase.Home, userDragging: false));
+        Assert.Equal((C.RunPhase.Home, true), C.ResolveMove(C.RunPhase.Home, userDragging: true));
+        Assert.Equal((C.RunPhase.Away, false), C.ResolveMove(C.RunPhase.Away, userDragging: false));   // run frames never overwrite home
+        Assert.Equal((C.RunPhase.Returning, false), C.ResolveMove(C.RunPhase.Returning, userDragging: false));   // nor the way back
+        Assert.Equal((C.RunPhase.Home, true), C.ResolveMove(C.RunPhase.Away, userDragging: true));   // a drag cancels the return
+        Assert.Equal((C.RunPhase.Home, true), C.ResolveMove(C.RunPhase.Returning, userDragging: true));
+    }
+
+    // MARK: Run target
+
+    private static readonly Rect Screen = new(0, 0, 1440, 875);
+    private static readonly Size Panel = new(180, 168);
+
+    private static void AssertInside(Point origin, Rect visible)
+    {
+        var rect = new Rect(origin, Panel);
+        Assert.True(visible.Contains(rect), $"{rect} leaves {visible}");
+    }
+
+    [Fact]
+    public void RunLandsBelowRightOfTheCursor()
+    {
+        var cursor = new Point(600, 400);
+        var origin = C.RunPanelOrigin(cursor, Panel, Screen, gap: 16);
+        Assert.Equal(new Point(616, 416), origin);
+        Assert.False(new Rect(origin, Panel).Contains(cursor));
+    }
+
+    [Fact]
+    public void RunFlipsAtScreenEdgesInsteadOfCoveringThePointer()
+    {
+        Point[] corners =
+        [
+            new(1430, 400),   // right edge
+            new(600, 860),    // bottom edge
+            new(1435, 870),   // bottom-right corner
+            new(5, 5),        // top-left corner
+        ];
+        foreach (var cursor in corners)
+        {
+            var origin = C.RunPanelOrigin(cursor, Panel, Screen, gap: 16);
+            AssertInside(origin, Screen);
+            Assert.False(new Rect(origin, Panel).Contains(cursor), $"covers the pointer at {cursor}");
+        }
+        // Flipped, not just clamped: a clamp alone would park the pet right under the pointer's column.
+        Assert.Equal(new Point(1430 - 16 - 180, 416), C.RunPanelOrigin(new Point(1430, 400), Panel, Screen, gap: 16));
+        Assert.Equal(new Point(616, 860 - 16 - 168), C.RunPanelOrigin(new Point(600, 860), Panel, Screen, gap: 16));
+    }
+
+    [Fact]
+    public void RunStaysOnTheCursorScreen()
+    {
+        var secondary = new Rect(-1920, 0, 1920, 1080);
+        AssertInside(C.RunPanelOrigin(new Point(-10, 5), Panel, secondary), secondary);
+    }
+
+    [Fact]
+    public void OversizedPanelKeepsThePetVisible()
+    {
+        var small = new Rect(0, 0, 300, 200);
+        var huge = new Size(384, 456);
+        var origin = C.RunPanelOrigin(new Point(150, 100), huge, small);
+        // The pet is the window's bottom-left: left edge and bottom edge on the work area.
+        Assert.Equal(new Point(small.Left, small.Bottom - huge.Height), origin);
+    }
+
     // MARK: Motion gates
+
+    /// <summary>Overlapping dones from several agents: one run, then only the bubble changes.</summary>
+    [Fact]
+    public void ASecondDoneDoesNotRunAgainWhileAway()
+    {
+        Assert.True(C.RunsToCursor(C.RunPhase.Home, motionAllowed: true, panelVisible: true, runEnabled: true));
+        Assert.True(C.RunsToCursor(C.RunPhase.Returning, motionAllowed: true, panelVisible: true, runEnabled: true));   // a done on the way back turns around
+        Assert.False(C.RunsToCursor(C.RunPhase.Away, motionAllowed: true, panelVisible: true, runEnabled: true));
+        Assert.False(C.RunsToCursor(C.RunPhase.Home, motionAllowed: false, panelVisible: true, runEnabled: true));   // energy saver / animations off
+        Assert.False(C.RunsToCursor(C.RunPhase.Home, motionAllowed: true, panelVisible: false, runEnabled: true));
+    }
+
+    /// <summary>Windows-only switch: off, a done never runs, from home or on the way back.</summary>
+    [Fact]
+    public void TheRunSwitchOffNeverRuns()
+    {
+        Assert.False(C.RunsToCursor(C.RunPhase.Home, motionAllowed: true, panelVisible: true, runEnabled: false));
+        Assert.False(C.RunsToCursor(C.RunPhase.Returning, motionAllowed: true, panelVisible: true, runEnabled: false));
+    }
 
     [Fact]
     public void MotionFollowsEnergySaverAndAnimationEffects()
@@ -295,6 +386,8 @@ public class FloatingPetAgentWiringTests
     private static void Send(FloatingPetController controller, string state, string? label = null) =>
         controller.HandleAgentEvent(AgentActivityEvent.Parse($"poketokenbar://agent?state={state}" + (label is { } l ? $"&label={l}" : ""))!);
 
+    private static readonly Rect Work = new(0, 0, 1440, 900);
+
     [Fact]
     public void EventsAreDroppedWhileThePetOrTheSettingIsOff() => Sta.Run(() =>
     {
@@ -314,45 +407,53 @@ public class FloatingPetAgentWiringTests
     {
         using var fixture = Make();
         Send(fixture.Controller, "working");
+        fixture.Controller.BeginRun(new Point(600, 400), Work);
         Assert.Equal(AgentActivity.Working, fixture.Controller.Tracker.Activity);
         Assert.NotNull(fixture.Controller.AgentExpiryFireDate);
 
         fixture.Store.FloatingPetAgentActivity = false;
         Assert.Equal(AgentActivity.Idle, fixture.Controller.Tracker.Activity);
+        Assert.Equal(C.RunPhase.Home, fixture.Controller.Phase);
         Assert.Null(fixture.Controller.AgentExpiryFireDate);   // no timer left behind
         Assert.False(fixture.Controller.IsBobbing);
     });
 
-    /// <summary>A done shows its bubble and leaves the saved home alone, through its expiry.</summary>
+    /// <summary>The run's frames must never become home; on Windows only a drop saves, and a non-drag move during the
+    /// run is ignored all the same.</summary>
     [Fact]
-    public void ADoneNeverMovesTheSavedHome() => Sta.Run(() =>
+    public void TheRunNeverOverwritesTheSavedHome() => Sta.Run(() =>
     {
         using var fixture = Make();
         fixture.Settings.Set("floatingPetOriginX", 300.0);
         fixture.Settings.Set("floatingPetOriginY", 200.0);
 
         Send(fixture.Controller, "done");
-        Assert.Equal(new C.Bubble.AgentDone(null, null), C.BubbleFor(null, fixture.Controller.Tracker.Summary));
+        var run = fixture.Controller.BeginRun(new Point(800, 300), Work);
+        fixture.Controller.PanelDidMove(new Point(500, 400), userDragging: false);
+        fixture.Controller.PanelDidMove(run.TopLeft, userDragging: false);
         Assert.Equal(300, fixture.Settings.GetDouble("floatingPetOriginX"));
         Assert.Equal(200, fixture.Settings.GetDouble("floatingPetOriginY"));
 
         var deadline = fixture.Controller.Tracker.Deadline!.Value;
         fixture.Controller.ExpireAgentActivity(deadline);
         Assert.Equal(AgentActivity.Idle, fixture.Controller.Tracker.Activity);
+        Assert.Equal(C.RunPhase.Home, fixture.Controller.Phase);
         Assert.Equal(300, fixture.Settings.GetDouble("floatingPetOriginX"));
         Assert.Equal(200, fixture.Settings.GetDouble("floatingPetOriginY"));
     });
 
     [Fact]
-    public void ADropWhileDoneShowsBecomesTheNewHome() => Sta.Run(() =>
+    public void ADragDuringTheRunBecomesTheNewHome() => Sta.Run(() =>
     {
         using var fixture = Make();
         fixture.Settings.Set("floatingPetOriginX", 300.0);
         fixture.Settings.Set("floatingPetOriginY", 200.0);
 
         Send(fixture.Controller, "done");
+        fixture.Controller.BeginRun(new Point(800, 300), Work);
         var dropped = new Point(900, 100);
-        fixture.Controller.PanelDidMove(dropped);
+        fixture.Controller.PanelDidMove(dropped, userDragging: true);
+        Assert.Equal(C.RunPhase.Home, fixture.Controller.Phase);   // the return is cancelled
 
         var petSize = fixture.Store.FloatingPetSize;
         var (w, h) = C.PanelSize(petSize, showingBubble: true);
@@ -486,10 +587,12 @@ public class FloatingPetAgentWiringTests
         Assert.True(fixture.Controller.IsBobbing);
 
         Send(fixture.Controller, "done", "api");
+        fixture.Controller.BeginRun(new Point(600, 400), Work);
         Assert.Equal(new C.Bubble.AgentDone("api", null), Bubble(fixture.Controller));
         Assert.True(fixture.Controller.IsBobbing);   // web is still working
 
         fixture.Controller.ExpireAgentActivity(fixture.Controller.Tracker.Agents["api"].Deadline!.Value);
+        Assert.Equal(C.RunPhase.Home, fixture.Controller.Phase);   // the pet walks home after the done
         Assert.Null(Bubble(fixture.Controller));
         Assert.True(fixture.Controller.IsBobbing);   // and keeps squashing for web
     });

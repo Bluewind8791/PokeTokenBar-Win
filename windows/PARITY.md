@@ -161,9 +161,10 @@ working 10 min, done 6 s, waiting until the next event or a click, unlabeled = o
 oldest), `AgentActivitySummary`, `UsageStore.FloatingPetAgentActivity` (`floatingPetAgentActivity`, default on), the 8
 strings. Pet (`FloatingPet.cs`): `Bubble` / `BubbleFor` (limit > done > waiting), `BubbleContent`, `AgentTitle` and
 `FittedBubbleBody` on `MeasureSpeechBubbleLayout`, the agent arguments of the #466 gates (`HeartsShowing`,
-`IsShowingBubble`, event pops), `AllowsMotion` / `ShouldBob`, the click route (agent acknowledgement, then prayer or
-Open; the context menu's Open acknowledges and always opens) and the expiry timer. The run to the cursor is not ported
-(see Deviations). Settings: Floating Pet → *React to agent activity*. Renders:
+`IsShowingBubble`, event pops), `RunPhase` / `ResolveMove` / `RunPanelOrigin` / `RunsToCursor` / `AllowsMotion` /
+`ShouldBob`, the click route (agent acknowledgement, then prayer or Open; the context menu's Open acknowledges and always
+opens), the expiry timer and the run. Settings: Floating Pet → *React to agent activity*, and under it the
+Windows-only *Run to the cursor when an agent finishes* (see Deviations). Renders:
 `--render pet-agent-working | pet-agent-waiting | pet-agent-done` and `settings-floatingpet`.
 
 Windows plumbing (no macOS counterpart; `AgentUrlHandler.cs` in Core):
@@ -197,12 +198,20 @@ Deviations:
   `Hide` stops it. `IsBobbing` is the request (like `agentModel.bobs`), `IsSquashTicking` the timer.
 - Motion: energy saver (`PowerMonitor.LowPower`) or Windows *Animation effects* off
   (`SystemParameters.ClientAreaAnimation`, watched through `StaticPropertyChanged`) stand in for Low Power Mode /
-  Reduce Motion: bubbles only, no squash.
-- No run to the cursor (removed on 2026-11-12 at the user's request; macOS keeps it). A done shows its bubble with the
-  pet at home and never moves the window, so `RunPhase` / `ResolveMove` / `RunPanelOrigin` / `RunsToCursor` /
-  `BeginRun`, the move animation and their tests (`OnlyHomeOrADragPersistsTheOrigin`, the run-target tests,
-  `ASecondDoneDoesNotRunAgainWhileAway`) are gone. `ADoneNeverMovesTheSavedHome` checks that the home stays.
-- Home: Windows saves the origin only when a drag ends (`PanelDidMove`).
+  Reduce Motion: bubbles only, no squash, no run.
+- Run: `Window.Left` / `Top` `DoubleAnimation`s (0.6 s, quadratic ease in-out; the base values are the target, so the
+  window stays there). The done bubble appears at home first and the window then moves, and on the way back the bubble
+  leaves at the run spot before the walk, so the pet never jumps when the window resizes (AppKit animates the frame,
+  size included). The cursor and its monitor's work area come from WinForms (`Cursor.Position`, `Screen.FromPoint`) in
+  pixels and are divided by the window's DPI; mixed-DPI monitor setups are not verified.
+- Run switch (Windows-only, added on 2026-11-12 at the user's request; macOS always runs):
+  `UsageStore.FloatingPetAgentRun` (`floatingPetAgentRun`, default on, so the default behaviour is macOS's) feeds
+  `RunsToCursor`'s `runEnabled`. Off, a done shows its bubble at home. The row shows only while *React to agent
+  activity* is on; its label is `L.WinFloatingPetAgentRunLabel` (`LocalizationWindows.cs`, outside the Swift string
+  parity). Switching it off during a run does not cut the run short: the pet walks home when that done expires.
+- Home: Windows saves the origin only when a drag ends, so the run's frames never reach the settings at all;
+  `PanelDidMove` / `ResolveMove` are kept for the drop (and tests). A drag that starts during the run or the walk back
+  stops the animation where it is, cancels the return, and the drop becomes home.
 - `FloatingPetController` takes an `IPowerStatus` (implemented by `PowerMonitor`), a motion override and a clock, so
   the wiring tests run without a power window. Window click tests raise mouse events on the window `MakeWindow` builds
   without showing it (`ScreenPoint` falls back to window coordinates while there is no HWND; `InternalsVisibleTo` the
@@ -212,11 +221,14 @@ Deviations:
   `FloatingPetAgentTests` / `FloatingPetAgentWiringTests` (display "off", motion pinned, so no window is shown) in
   App.Tests, with the #466 cases and the window-click tests. Not ported: `AgentURLHandlerTests`' Apple Event test
   (replaced by the pipe and argument tests). Not under test: the view-side gates inside `Show` / `PopEventIfNew`
-  (hearts hidden under agent speech, event pop blocked by it — the pure gates are tested), `App.OnStartup`'s forward path and the `AppController` wiring (need a live app, the real
+  (hearts hidden under agent speech, event pop blocked by it — the pure gates are tested), the run animation and the
+  cursor / monitor query, `App.OnStartup`'s forward path and the `AppController` wiring (need a live app, the real
   protocol key and the real pipe), and the `SystemParameters` change notification.
 - Checked live on 2026-11-12 with the published build: the app registered `HKCU\Software\Classes\poketokenbar` at
-  start; opening `waiting` showed the labeled bubble, and the installed Claude Code hook script reached the pet in
-  ~320 ms. (That check also saw the since-removed run to the cursor.)
+  start; opening `waiting` showed the labeled bubble, `done` moved the pet window next to the cursor on the other
+  monitor and back home within 10 s, and the installed Claude Code hook script did the same in ~320 ms.
+- Follow-up: on a monitor with another scale (150 % next to a 100 % primary) the run-to-cursor window still reports
+  96 DPI, so the pet may draw at the primary monitor's scale there. Not verified visually.
 
 ## Not ported (out of scope)
 

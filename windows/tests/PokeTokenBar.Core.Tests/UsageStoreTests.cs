@@ -170,17 +170,20 @@ public sealed class UsageStoreTests
         Assert.Equal(96, store.FloatingPetSize);
         Assert.True(store.FloatingPetBubbleAlerts);
         Assert.True(store.FloatingPetAgentActivity);   // inert until an agent hook sends a URL
+        Assert.True(store.FloatingPetAgentRun);   // macOS behaviour by default
 
         store.FloatingPetEnabled = true;
         store.FloatingPetSize = 144;
         store.FloatingPetBubbleAlerts = false;
         store.FloatingPetAgentActivity = false;
+        store.FloatingPetAgentRun = false;
 
         var reloaded = MakeStore([]);
         Assert.True(reloaded.FloatingPetEnabled);
         Assert.Equal(144, reloaded.FloatingPetSize);
         Assert.False(reloaded.FloatingPetBubbleAlerts);
         Assert.False(reloaded.FloatingPetAgentActivity);
+        Assert.False(reloaded.FloatingPetAgentRun);
     }
 
     /// <summary>Always facing back is a display preference: default off, persisted like the floating pet settings.</summary>

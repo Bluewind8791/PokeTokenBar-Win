@@ -82,4 +82,15 @@ public sealed partial class L
         "Escolha um arquivo exportado de outro PC ou Mac e continue por aqui",
         "Wähle eine auf einem anderen PC oder Mac exportierte Datei aus und mach hier weiter",
         "Выберите файл, экспортированный на другом ПК или Mac, и продолжайте здесь");
+
+    /// <summary>Windows-only switch for the run to the cursor on an agent done (macOS always runs).</summary>
+    public string WinFloatingPetAgentRunLabel => T(
+        "작업이 끝나면 커서로 달려가기",
+        "Run to the cursor when an agent finishes",
+        "作業が終わるとカーソルへ駆け寄る",
+        "Correr hacia el cursor al terminar",
+        "Courir vers le curseur à la fin",
+        "Correr até o cursor ao terminar",
+        "Nach Abschluss zum Mauszeiger laufen",
+        "Подбегать к курсору по завершении");
 }

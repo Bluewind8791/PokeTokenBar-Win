@@ -347,6 +347,10 @@ public sealed class UsageStore : IDisposable
     /// <summary>Let coding agents drive the floating pet through <c>poketokenbar://agent</c> URLs. Default on —
     /// nothing happens until the user wires an agent hook.</summary>
     public bool FloatingPetAgentActivity { get => _floatingPetAgentActivity; set => SetBool(ref _floatingPetAgentActivity, value, "floatingPetAgentActivity"); }
+    private bool _floatingPetAgentRun;
+    /// <summary>Windows-only: whether the pet runs to the cursor when an agent finishes. Default on, as on macOS
+    /// (which has no switch); off keeps the pet home and shows only the done bubble.</summary>
+    public bool FloatingPetAgentRun { get => _floatingPetAgentRun; set => SetBool(ref _floatingPetAgentRun, value, "floatingPetAgentRun"); }
 
     private MenuLimitColorMode _menuLimitColorMode;
     public MenuLimitColorMode MenuLimitColorMode
@@ -922,6 +926,7 @@ public sealed class UsageStore : IDisposable
         _floatingPetSize = s.GetDouble("floatingPetSize") ?? 96;
         _floatingPetBubbleAlerts = s.GetBool("floatingPetBubbleAlerts") ?? true;
         _floatingPetAgentActivity = s.GetBool("floatingPetAgentActivity") ?? true;
+        _floatingPetAgentRun = s.GetBool("floatingPetAgentRun") ?? true;
         // Power saver by default: the frame rate of the fixed cap before this setting existed.
         _animationQuality = AnimationQualities.FromRawValue(s.GetString("animationQuality")) ?? AnimationQuality.PowerSaver;
         _additionalClaudeConfigDirs = s.GetString(ClaudeAccountRoots.DefaultsKey) ?? "";

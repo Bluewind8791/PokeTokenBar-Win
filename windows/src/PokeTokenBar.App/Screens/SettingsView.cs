@@ -294,6 +294,11 @@ public static partial class SettingsView
             rows.Add(Ui.Divider());
             rows.Add(Row(LabelWithHint(l.FloatingPetAgentActivityLabel, l.FloatingPetAgentActivityHint),
                 new MacSwitch(store.FloatingPetAgentActivity, v => store.FloatingPetAgentActivity = v, l.FloatingPetAgentActivityLabel)));
+            if (store.FloatingPetAgentActivity)
+            {
+                rows.Add(Ui.Divider());
+                rows.Add(ToggleRow(l.WinFloatingPetAgentRunLabel, store.FloatingPetAgentRun, v => store.FloatingPetAgentRun = v));
+            }
         }
         return Section(l.FloatingPetSectionTitle, rows.ToArray());
     }

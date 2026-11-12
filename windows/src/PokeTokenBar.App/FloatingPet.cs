@@ -18,8 +18,9 @@ namespace PokeTokenBar.App;
 /// open the popover for a hatched Pokémon, right-click for Open / Hide / Back view, hover for today's usage, a
 /// speech bubble for limit alerts, a heart bubble after stroking it, and a callout that pops by itself for a
 /// hatch / evolution / graduation / Ditto line.
-/// Agent activity (<c>poketokenbar://agent</c>, #457): squash while working, a bubble while waiting and when done.
-/// Unlike macOS, the pet never runs to the cursor on done; it stays home.
+/// Agent activity (<c>poketokenbar://agent</c>, #457): squash while working, bubble while waiting, run to the cursor
+/// when done. The run never moves the saved home. Windows-only: the run can be switched off
+/// (<see cref="UsageStore.FloatingPetAgentRun"/>); the done bubble then shows at home.
 /// </summary>
 public sealed class FloatingPetController : IDisposable
 {
@@ -57,11 +58,43 @@ public sealed class FloatingPetController : IDisposable
 
     // MARK: Agent activity (pure)
 
+    /// <summary>Run to the cursor / back home.</summary>
+    public static readonly TimeSpan AgentRunDuration = TimeSpan.FromSeconds(0.6);
+    /// <summary>Distance between the cursor and the window after a run, so the pet never sits under the pointer.</summary>
+    public const double AgentRunCursorGap = 16;
     /// <summary>Half a squash cycle while an agent works. Must stay &gt; 0: it is the frame cap of this loop.</summary>
     public static readonly TimeSpan AgentBobInterval = TimeSpan.FromSeconds(0.5);
 
-    /// <summary>Motion (squash) needs an animated host (no energy saver) and Windows animation effects on.</summary>
+    /// <summary>Where the pet stands relative to its saved home during an agent "done" run.</summary>
+    public enum RunPhase { Home, Away, Returning }
+
+    /// <summary>A move persists the origin only at home. A user drag during a run cancels the return and becomes the
+    /// new home; the run's own animation frames never overwrite it.</summary>
+    public static (RunPhase Phase, bool Persist) ResolveMove(RunPhase phase, bool userDragging) =>
+        userDragging ? (RunPhase.Home, true) : (phase, phase == RunPhase.Home);
+
+    /// <summary>
+    /// Window origin next to the cursor (DIPs, y down): below-right by default, flipped left/up at the work-area edges
+    /// so the window does not cover the pointer, then clamped to the work area. When the window is larger than the
+    /// work area, its bottom-left (the pet) stays visible.
+    /// </summary>
+    public static Point RunPanelOrigin(Point cursor, Size panelSize, Rect workArea, double gap = AgentRunCursorGap)
+    {
+        var fitsRight = cursor.X + gap + panelSize.Width <= workArea.Right;
+        var fitsBelow = cursor.Y + gap + panelSize.Height <= workArea.Bottom;
+        var x = fitsRight ? cursor.X + gap : cursor.X - gap - panelSize.Width;
+        var y = fitsBelow ? cursor.Y + gap : cursor.Y - gap - panelSize.Height;
+        return new Point(Math.Max(Math.Min(x, workArea.Right - panelSize.Width), workArea.Left),
+            Math.Min(Math.Max(y, workArea.Top), workArea.Bottom - panelSize.Height));
+    }
+
+    /// <summary>Motion (squash, run) needs an animated host (no energy saver) and Windows animation effects on.</summary>
     public static bool AllowsMotion(bool animated, bool reduceMotion) => animated && !reduceMotion;
+
+    /// <summary>A done runs to the cursor unless the run is switched off or the pet is already there for another
+    /// agent's done.</summary>
+    public static bool RunsToCursor(RunPhase phase, bool motionAllowed, bool panelVisible, bool runEnabled) =>
+        runEnabled && phase != RunPhase.Away && motionAllowed && panelVisible;
 
     public static bool ShouldBob(bool working, bool motionAllowed) => motionAllowed && working;
 
@@ -250,6 +283,11 @@ public sealed class FloatingPetController : IDisposable
     private readonly AgentSquash _squash;
     /// <summary>Whether the pet should squash (an agent works and motion is allowed); the squash runs only while shown.</summary>
     private bool _bobs;
+    private RunPhase _runPhase = RunPhase.Home;
+    /// <summary>Pet origin next to the cursor; read only while <see cref="_runPhase"/> is <see cref="RunPhase.Away"/>.</summary>
+    private Point? _awayPetOrigin;
+    /// <summary>Bumped on every run / return animation, so a stale completion does nothing.</summary>
+    private int _runGeneration;
     /// <summary>Tests pin motion on or off; null follows energy saver and Windows animation effects.</summary>
     private readonly bool? _motionOverride;
     private readonly Func<DateTimeOffset> _clock;
@@ -334,7 +372,7 @@ public sealed class FloatingPetController : IDisposable
 
     private void Sync()
     {
-        if (!AgentEnabled && _tracker.Agents.Count > 0) ResetAgent();
+        if (!AgentEnabled && (_tracker.Agents.Count > 0 || _runPhase != RunPhase.Home)) ResetAgent();
         _bobs = ShouldBob(_tracker.Summary.Working, MotionAllowed);
         // Display off → the window and its animation timers go away (macOS setDisplayAwake); on → rebuilt.
         if (!_store.FloatingPetEnabled || !_power.DisplayOn) Hide();
@@ -399,7 +437,8 @@ public sealed class FloatingPetController : IDisposable
         var frame = TargetFrame(petSize, showingBubble);
         window.Width = frame.Width;
         window.Height = frame.Height;
-        // The pet keeps its place; a bubble grows the window upward and centered over it.
+        // The pet keeps its place; a bubble grows the window upward and centered over it. During a run animation these
+        // are the base values the animation ends on.
         window.Left = frame.Left;
         window.Top = frame.Top;
         if (!window.IsVisible) window.Show();
@@ -417,6 +456,9 @@ public sealed class FloatingPetController : IDisposable
         _prayerBurst.Clear();
         _petting.Reset();
         _squash.Active = false;
+        // A hidden pet comes back at home, not where it last ran to.
+        _runPhase = RunPhase.Home;
+        _runGeneration += 1;
         (_spriteSlot.Content as PetView)?.Detach();
         _spriteSlot.Content = null;
         if (_foregroundHook != IntPtr.Zero) { UnhookWinEvent(_foregroundHook); _foregroundHook = IntPtr.Zero; }
@@ -431,6 +473,7 @@ public sealed class FloatingPetController : IDisposable
 
     /// <summary>The agents the pet heard from (tests read it).</summary>
     public AgentActivityTracker Tracker => _tracker;
+    public RunPhase Phase => _runPhase;
     public bool IsBobbing => _bobs;
     /// <summary>Whether the squash timer runs: only while the pet is shown.</summary>
     internal bool IsSquashTicking => _squash.Active;
@@ -450,7 +493,12 @@ public sealed class FloatingPetController : IDisposable
     {
         _bobs = ShouldBob(_tracker.Summary.Working, MotionAllowed);
         ScheduleAgentExpiry();
-        Sync();
+        if (_tracker.Summary.Done != null)
+        {
+            if (_window is { IsVisible: true } w && !_pressed && RunsToCursor(_runPhase, MotionAllowed, panelVisible: true, runEnabled: _store.FloatingPetAgentRun)) RunToCursor(w);
+            else Sync();
+        }
+        else ReturnHome();
     }
 
     /// <summary>One timer at the tracker's deadline — none while idle or waiting.</summary>
@@ -479,11 +527,108 @@ public sealed class FloatingPetController : IDisposable
         _tracker.Reset();
         _agentTimer.Stop();
         _agentTimerDeadline = null;
+        if (_window != null) StopRunAnimation(_window);
+        _runPhase = RunPhase.Home;
+        _runGeneration += 1;
     }
 
-    /// <summary>A drop of the window: the pet's new origin is saved. Windows saves on drop only.</summary>
-    public void PanelDidMove(Point panelOrigin)
+    /// <summary>Runs to the cursor's monitor. The cursor and work area come in physical pixels and are converted with
+    /// the window's DPI, the scale its own coordinates use.</summary>
+    private void RunToCursor(Window w)
     {
+        Show();   // the done bubble appears at home first, so the pet does not jump when the window grows
+        var dpi = VisualTreeHelper.GetDpi(w);
+        var cursor = System.Windows.Forms.Cursor.Position;
+        var work = System.Windows.Forms.Screen.FromPoint(cursor).WorkingArea;
+        var frame = BeginRun(new Point(cursor.X / dpi.DpiScaleX, cursor.Y / dpi.DpiScaleY),
+            new Rect(work.Left / dpi.DpiScaleX, work.Top / dpi.DpiScaleY, work.Width / dpi.DpiScaleX, work.Height / dpi.DpiScaleY));
+        _callout.IsOpen = false;
+        Animate(w, frame.TopLeft, () => { });
+    }
+
+    /// <summary>Leaves home for a spot next to the cursor and returns the window frame to move to.</summary>
+    public Rect BeginRun(Point cursor, Rect workArea)
+    {
+        var petSize = _store.FloatingPetSize;
+        var (width, height) = PanelSize(petSize, showingBubble: true);
+        var size = new Size(width, height);
+        var origin = RunPanelOrigin(cursor, size, workArea);
+        _runPhase = RunPhase.Away;
+        _awayPetOrigin = PetOriginOf(origin, petSize, size);
+        return new Rect(origin, size);
+    }
+
+    private void ReturnHome()
+    {
+        if (_runPhase != RunPhase.Away || _window is not { IsVisible: true } w || _pressed)
+        {
+            if (_runPhase == RunPhase.Away) _runPhase = RunPhase.Home;
+            Sync();
+            return;
+        }
+        if (!MotionAllowed)
+        {
+            _runPhase = RunPhase.Home;
+            Sync();
+            return;
+        }
+        Show();   // the bubble leaves where the pet stands, then it walks home
+        _runPhase = RunPhase.Returning;
+        var frame = TargetFrame(_store.FloatingPetSize, ShowingBubble);
+        Animate(w, frame.TopLeft, () =>
+        {
+            if (_runPhase != RunPhase.Returning) return;
+            _runPhase = RunPhase.Home;
+            Sync();
+        });
+    }
+
+    /// <summary>Moves the window over <see cref="AgentRunDuration"/>. The base values are the target, so the window
+    /// stays there when the animation ends; a newer run, a drag or a hide makes the completion a no-op.</summary>
+    private void Animate(Window w, Point to, Action completion)
+    {
+        _runGeneration += 1;
+        var generation = _runGeneration;
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseInOut };
+        var left = new DoubleAnimation(w.Left, to.X, AgentRunDuration) { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        var top = new DoubleAnimation(w.Top, to.Y, AgentRunDuration) { EasingFunction = ease, FillBehavior = FillBehavior.Stop };
+        top.Completed += (_, _) =>
+        {
+            if (_runGeneration == generation) completion();
+        };
+        // Animate first, then set the base values: the window never jumps to the target before it moves.
+        w.BeginAnimation(Window.LeftProperty, left);
+        w.BeginAnimation(Window.TopProperty, top);
+        w.Left = to.X;
+        w.Top = to.Y;
+    }
+
+    /// <summary>Freezes the window where the run animation has it now.</summary>
+    private static void StopRunAnimation(Window w)
+    {
+        if (!w.HasAnimatedProperties) return;
+        var (left, top) = (w.Left, w.Top);
+        w.BeginAnimation(Window.LeftProperty, null);
+        w.BeginAnimation(Window.TopProperty, null);
+        w.Left = left;
+        w.Top = top;
+    }
+
+    /// <summary>
+    /// A move of the window. Only home (or a user drag) persists the pet's origin; a drag during a run or the walk
+    /// back cancels the return and becomes the new home. Windows saves on drop only, so programmatic moves never come
+    /// here — the run's frames are covered by <see cref="ResolveMove"/> all the same.
+    /// </summary>
+    public void PanelDidMove(Point panelOrigin, bool userDragging)
+    {
+        var move = ResolveMove(_runPhase, userDragging);
+        if (move.Phase != _runPhase)
+        {
+            _runPhase = move.Phase;
+            _runGeneration += 1;   // the pending return is cancelled
+            if (_window != null) StopRunAnimation(_window);
+        }
+        if (!move.Persist) return;
         var petSize = _store.FloatingPetSize;
         var (width, height) = PanelSize(petSize, ShowingBubble);
         var pet = PetOriginOf(panelOrigin, petSize, new Size(width, height));
@@ -540,12 +685,13 @@ public sealed class FloatingPetController : IDisposable
     public static Point PetOriginOf(Point panelOrigin, double petSize, Size panelSize) =>
         new(panelOrigin.X + Math.Max(0, (panelSize.Width - petSize) / 2), panelOrigin.Y + (panelSize.Height - petSize));
 
-    /// <summary>The window frame for the pet's place: always home.</summary>
+    /// <summary>The window frame for the pet's place: next to the cursor during a run, else home.</summary>
     private Rect TargetFrame(double petSize, bool showingBubble)
     {
         var (w, h) = PanelSize(petSize, showingBubble);
         var size = new Size(w, h);
-        return new Rect(PanelOriginOf(PetOrigin(petSize), petSize, size), size);
+        var pet = _runPhase == RunPhase.Away && _awayPetOrigin is { } away ? away : PetOrigin(petSize);
+        return new Rect(PanelOriginOf(pet, petSize, size), size);
     }
 
     /// <summary>Top-left of the pet square in DIPs; default: bottom-right of the primary work area, 24 pt in.</summary>
@@ -609,7 +755,18 @@ public sealed class FloatingPetController : IDisposable
             _petting.Reset();
             var dx = (now.X - start.X) / dpi.DpiScaleX;
             var dy = (now.Y - start.Y) / dpi.DpiScaleY;
-            if (!dragged && dx * dx + dy * dy >= ClickThresholdSquared) dragged = true;
+            if (!dragged && dx * dx + dy * dy >= ClickThresholdSquared)
+            {
+                dragged = true;
+                // A drag during a run (or the walk back) stops it where it is and cancels the return; the drop is home.
+                if (_runPhase != RunPhase.Home)
+                {
+                    StopRunAnimation(w);
+                    originAtDown = new Point(w.Left - dx, w.Top - dy);
+                    _runPhase = RunPhase.Home;
+                    _runGeneration += 1;
+                }
+            }
             if (!dragged) return;
             w.Left = originAtDown.X + dx;
             w.Top = originAtDown.Y + dy;
@@ -621,7 +778,7 @@ public sealed class FloatingPetController : IDisposable
             _pressed = false;
             if (down == null) return;
             down = null;
-            if (dragged) PanelDidMove(new Point(w.Left, w.Top));
+            if (dragged) PanelDidMove(new Point(w.Left, w.Top), userDragging: true);
             else PetClicked();
         };
         w.MouseRightButtonUp += (_, _) =>
