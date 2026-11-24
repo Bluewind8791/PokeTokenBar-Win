@@ -56,19 +56,23 @@ same as in the [main README](../README.md#agent-activity). With energy saver on,
 **How the URL reaches the app.** At every start the app registers the `poketokenbar` protocol for your Windows account
 (`HKCU\Software\Classes\poketokenbar`, opening `"<path>\PokeTokenBar.exe" "%1"`); it rewrites the key only when it is
 missing or points at another copy of the app. Opening a URL starts a second `PokeTokenBar.exe`, which hands the URL to
-the running app over a named pipe that only your account in your session can open, and exits. The running app accepts
+the running app over a named pipe that only your account in your session can open, and exits (after at most 2 s, taken
+or not). The running app accepts
 at most 4 KB of UTF-8 and ignores anything that is not an agent URL. If the app is not running, the URL starts it.
 Moving or deleting the app leaves the protocol key behind; the next start of the app at its new place updates it.
 
 **Claude Code** — save [`scripts/poketokenbar-hook.ps1`](scripts/poketokenbar-hook.ps1) as
 `%USERPROFILE%\.claude\poketokenbar.ps1`. It labels each session with its project folder name, so two sessions in the
 same folder share one label. It does nothing while PokeTokenBar is not running (so a hook never starts the app after
-you quit it), and the app takes the URL without taking the focus from your terminal.
+you quit it), and the app takes the URL without taking the focus from your terminal. "Running" means the app's pipe
+for your session exists: a check by process name would also see a hand-off process or an instance in another session,
+and start the app again.
 
 ```powershell
 param([string]$State = 'working')
 try {
-    if (-not (Get-Process -Name PokeTokenBar -ErrorAction SilentlyContinue)) { exit 0 }
+    $pipe = '\\.\pipe\PokeTokenBar.SingleInstance.' + (Get-Process -Id $PID).SessionId
+    if ([System.IO.Directory]::GetFiles('\\.\pipe\') -notcontains $pipe) { exit 0 }
     $folder = ''
     if ($env:CLAUDE_PROJECT_DIR) { $folder = Split-Path -Leaf $env:CLAUDE_PROJECT_DIR.TrimEnd('\', '/') }
     Start-Process ('poketokenbar://agent?state=' + [Uri]::EscapeDataString($State) + '&label=' + [Uri]::EscapeDataString($folder))
@@ -96,7 +100,7 @@ The absolute path works whichever shell Claude Code runs hooks with. Each hook s
 process), which takes a few hundred milliseconds.
 
 **Other agents** — open the URL from any hook or script, e.g. in PowerShell:
-`if (Get-Process PokeTokenBar -ErrorAction SilentlyContinue) { Start-Process 'poketokenbar://agent?state=done&label=my-app&message=Build%20passed' }`.
+`if ([System.IO.Directory]::GetFiles('\\.\pipe\') -contains ('\\.\pipe\PokeTokenBar.SingleInstance.' + (Get-Process -Id $PID).SessionId)) { Start-Process 'poketokenbar://agent?state=done&label=my-app&message=Build%20passed' }`.
 
 ## Build from source
 

@@ -58,7 +58,8 @@ public static class AgentUrlChannel
     /// <summary>A real agent URL is under 1 KB (an 80-character message, percent-encoded); the cap bounds what
     /// another process can make the app read.</summary>
     public const int MaxPayloadBytes = 4096;
-    public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
+    /// <summary>Bounds the whole hand-off, connect and write: the hand-off process must always exit.</summary>
+    public static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(2);
 
     /// <summary>Named after the single-instance mutex (<c>Local\PokeTokenBar.SingleInstance</c>); pipe names are
@@ -80,20 +81,23 @@ public static class AgentUrlChannel
     public static AgentActivityEvent? Accept(string? payload) =>
         payload == null || Encoding.UTF8.GetByteCount(payload) > MaxPayloadBytes ? null : AgentActivityEvent.Parse(payload);
 
-    /// <summary>Writes the URL to the running instance. False when nothing answers in time or the URL is oversized.</summary>
+    /// <summary>Writes the URL to the running instance. False when it is not taken within <paramref name="timeout"/> or
+    /// the URL is oversized. The timeout covers the write too: the pipe has no buffer, so the write waits until the
+    /// instance reads, and an instance that accepts but never reads would otherwise keep this process forever.</summary>
     public static bool Send(string pipeName, string url, TimeSpan timeout)
     {
         var bytes = Encoding.UTF8.GetBytes(url);
         if (bytes.Length > MaxPayloadBytes) return false;
+        using var deadline = new CancellationTokenSource(timeout);
         try
         {
-            using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
-            client.Connect((int)timeout.TotalMilliseconds);
-            client.Write(bytes);
-            client.Flush();
+            using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out,
+                PipeOptions.CurrentUserOnly | PipeOptions.Asynchronous);
+            client.ConnectAsync(deadline.Token).GetAwaiter().GetResult();
+            client.WriteAsync(bytes, deadline.Token).AsTask().GetAwaiter().GetResult();
             return true;
         }
-        catch (Exception e) when (e is TimeoutException or IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is OperationCanceledException or TimeoutException or IOException or UnauthorizedAccessException)
         {
             return false;
         }

@@ -160,6 +160,24 @@ public class AgentUrlHandlerTests
             TimeSpan.FromMilliseconds(200)));
     }
 
+    /// <summary>Regression: Send bounded the connect only. The pipe has no buffer, so the write waits for the reader, and
+    /// against an instance that accepts but does not read (hung, suspended) the hand-off process never exited.</summary>
+    [Fact]
+    public async Task SendGivesUpWhenTheInstanceConnectsButNeverReads()
+    {
+        var name = UniquePipe();
+        await using var server = new NamedPipeServerStream(name, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var accepted = server.WaitForConnectionAsync();
+        var started = DateTime.UtcNow;
+        var send = Task.Run(() => AgentUrlChannel.Send(name, "poketokenbar://agent?state=done", TimeSpan.FromMilliseconds(500)));
+        // Without a bound on the write this waits forever; the test gives up long before that.
+        var finished = await Task.WhenAny(send, Task.Delay(TimeSpan.FromSeconds(10))) == send;
+        Assert.True(finished, "Send still blocked on a pipe nobody reads");
+        Assert.False(await send);
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(5));
+        await accepted;
+    }
+
     /// <summary>End to end over a real pipe: the listener delivers valid URLs and drops oversized, invalid and foreign
     /// payloads without stopping.</summary>
     [Fact]

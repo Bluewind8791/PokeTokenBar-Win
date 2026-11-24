@@ -6,8 +6,11 @@
 param([string]$State = 'working')
 
 try {
-    # Like pgrep on macOS: a hook must not start the app again after you quit it.
-    if (-not (Get-Process -Name PokeTokenBar -ErrorAction SilentlyContinue)) { exit 0 }
+    # Like pgrep on macOS: a hook must not start the app again after you quit it. The running app is the one that
+    # listens on this session's pipe; a process name alone also matches a URL hand-off still alive or an instance in
+    # another session, and the URL then started the app you had quit. Listing the pipes does not connect to them.
+    $pipe = '\\.\pipe\PokeTokenBar.SingleInstance.' + (Get-Process -Id $PID).SessionId
+    if ([System.IO.Directory]::GetFiles('\\.\pipe\') -notcontains $pipe) { exit 0 }
     $folder = ''
     if ($env:CLAUDE_PROJECT_DIR) { $folder = Split-Path -Leaf $env:CLAUDE_PROJECT_DIR.TrimEnd('\', '/') }
     $url = 'poketokenbar://agent?state=' + [Uri]::EscapeDataString($State) + '&label=' + [Uri]::EscapeDataString($folder)

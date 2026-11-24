@@ -172,15 +172,19 @@ Windows plumbing (no macOS counterpart; `AgentUrlHandler.cs` in Core):
   refreshed by `AppController` at every start and written only when missing, stale (another exe) or without the
   `URL Protocol` value. The key path is a parameter (`EnsureRegisteredAt`), so tests use a throwaway HKCU key.
 - `AgentUrlChannel` / `AgentUrlListener`: a URL launch is a second process. `App.OnStartup` reads only the first
-  argument (and only when it has the scheme), loses the single-instance mutex and writes the URL to the named pipe
+  argument (and only when it has the scheme), fails to own the single-instance mutex (`SingleInstanceLock`: ownership,
+  not existence, decides, and a yielding process drops its handle at once) and writes the URL to the named pipe
   `PokeTokenBar.SingleInstance.<session id>` (pipe names are machine-wide, so the session id stands in for the mutex's
-  `Local\`; `PipeOptions.CurrentUserOnly` on both ends), then exits without logging. The running instance serves one
+  `Local\`; `PipeOptions.CurrentUserOnly` on both ends), then exits. Connect and write share one 2 s bound
+  (`AgentUrlChannel.SendTimeout`); only a URL not taken in time is logged. The running instance serves one
   client at a time and treats the bytes as untrusted: at most 4 KB, strict UTF-8, read within 2 s, then
   `AgentActivityEvent.Parse`; anything else is dropped. Accepted events go to the pet on the UI thread
   (`Dispatcher.BeginInvoke`). With no instance running, the URL process becomes the app and applies its own URL once
   the pet exists (`AppController.HandleAgentUrl`, same validation). The listener waits on the pipe with no timer.
-- Hook: `scripts/poketokenbar-hook.ps1` (ASCII only, so PowerShell 5.1 needs no BOM) — `Get-Process` in place of
-  `pgrep`, `[Uri]::EscapeDataString` in place of perl, `Start-Process <url>` in place of `open -g`. `README.md` has the
+- Hook: `scripts/poketokenbar-hook.ps1` (ASCII only, so PowerShell 5.1 needs no BOM) — the session's pipe in the
+  `\\.\pipe\` listing in place of `pgrep` (Windows difference: a process name also matched hand-off processes and
+  instances in other sessions, so a hook restarted the app you had quit), `[Uri]::EscapeDataString` in place of perl,
+  `Start-Process <url>` in place of `open -g`. `README.md` has the
   section and the `settings.json` hooks with absolute paths (they work whichever shell runs hooks).
 
 Deviations:

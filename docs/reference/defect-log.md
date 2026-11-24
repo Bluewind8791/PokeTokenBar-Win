@@ -870,6 +870,25 @@ read_when:
   of the app, then kills it: the marker must be gone and `clean shutdown (session ending: …)` logged.
   That check alone cannot catch a regression: the pre-fix build sometimes won the race there, while
   it lost on the real restart (marker kept, no `clean shutdown` line).
+- **Windows: judge the running instance by what only it has, not by a name or a handle every process shares.**
+  Three checks in the agent URL path failed this way, and each one fed the next. (1) The Claude Code hook skipped
+  the URL only when no process was named `PokeTokenBar`. URL hand-off processes and an instance in another session
+  have that name too, so after you quit the app the next hook started it again. Use the session's pipe
+  `\\.\pipe\PokeTokenBar.SingleInstance.<session>` from the `\\.\pipe\` listing; the listing does not connect.
+  (2) `new Mutex(true, name, out createdNew)` decided by "did I create the mutex". Every hand-off process opens it,
+  so one hand-off still alive made a real launch yield, and the app did not start. Decide by ownership
+  (`SingleInstanceLock.TryAcquire`: `WaitOne(0)`, an abandoned mutex counts as ours) and drop the handle when yielding.
+  (3) `AgentUrlChannel.Send` bounded the connect but not the write. The pipe has no buffer, so the write waits for the
+  reader; against an instance that accepts but does not read, the hand-off waits forever. One hand-off process lived
+  24 h. Whether it hung in the write is not proven: the process was gone before it was inspected. The yield path could
+  not log either: `AppLog` writes only when `AppEnv.IsInstalledApp` is set, and that was set after the
+  single-instance check. Set it before the check, so a yield leaves its line.
+  Why the tests missed it: `SendFailsQuicklyWithoutARunningInstance` covered "no server", never "server connected,
+  not reading". No test covered the single-instance decision, which lived inline in `App.OnStartup`, or the hook
+  script. Guards: `SingleInstanceLockTests` (an unowned handle does not block; abandoned is taken over; both fail with
+  the `createdNew` decision injected), `SendGivesUpWhenTheInstanceConnectsButNeverReads` (fails on the old `Send`), and
+  a live check: app quit plus a foreign process named `PokeTokenBar` (renamed `PING.EXE`): the old hook started the
+  app, the new one does not.
 
 ## 표시·UI
 

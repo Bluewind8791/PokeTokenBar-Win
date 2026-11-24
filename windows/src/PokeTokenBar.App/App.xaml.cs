@@ -1,5 +1,4 @@
-﻿using System.Threading;
-using System.Windows;
+﻿using System.Windows;
 using PokeTokenBar.Core;
 
 namespace PokeTokenBar.App;
@@ -9,7 +8,7 @@ namespace PokeTokenBar.App;
 /// </summary>
 public partial class App : Application
 {
-    private Mutex? _singleInstance;
+    private SingleInstanceLock? _singleInstance;
     private AppController? _app;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -24,18 +23,24 @@ public partial class App : Application
         }
         // A poketokenbar:// launch (the URL protocol's open command) carries the URL as the first argument.
         var agentUrl = AgentUrlChannel.UrlArgument(e.Args);
+        // Set before the single-instance check: the log writes only for the installed app, and a yielding launch must
+        // leave its line, or "the app does not start" cannot be told from a crash.
+        AppEnv.IsInstalledApp = true;
         // A second launch yields to the instance already running (SingleInstance.swift).
-        _singleInstance = new Mutex(true, @"Local\PokeTokenBar.SingleInstance", out var first);
-        if (!first)
+        _singleInstance = SingleInstanceLock.TryAcquire();
+        if (_singleInstance == null)
         {
-            // An agent URL is handed over (dropped when nothing answers in time) and the process exits quietly.
-            if (agentUrl != null) AgentUrlChannel.Send(AgentUrlChannel.CurrentPipeName(), agentUrl, AgentUrlChannel.ConnectTimeout);
+            // An agent URL is handed over (dropped when it is not taken in time) and the process exits quietly.
+            if (agentUrl != null)
+            {
+                if (!AgentUrlChannel.Send(AgentUrlChannel.CurrentPipeName(), agentUrl, AgentUrlChannel.SendTimeout))
+                    AppLog.Write("agent urls: the running instance did not take a URL in time; dropped");
+            }
             else AppLog.Write("duplicate instance: yielding to the instance already running");
             Shutdown();
             return;
         }
         Theme.Install(this);
-        AppEnv.IsInstalledApp = true;
         CrashReporter.ObserveUnhandledExceptions();
         CrashReporter.Install(UpdateChecker.EntryVersion());
         AppSettings.Current = AppSettings.ForInstalledApp();
