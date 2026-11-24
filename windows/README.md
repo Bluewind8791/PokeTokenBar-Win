@@ -9,12 +9,13 @@ not ported.
 
 ## Requirements
 
-Windows 10 or 11, x64. The release zip is self-contained; no .NET install is needed.
+Windows 11 x64 (Windows 10 x64 is untested). The release exe is self-contained; no .NET install is
+needed.
 
 ## Install
 
-1. Download `PokeTokenBar-Windows-x64.zip` from the GitHub release.
-2. Unzip and run `PokeTokenBar.exe`. The companion appears in the notification area (it may sit
+1. Download `PokeTokenBar.exe` from the GitHub release.
+2. Put it in the folder you keep it in, and run it. The companion appears in the notification area (it may sit
    in the overflow `^` menu at first — drag it onto the taskbar to keep it visible).
 3. Optional: Settings → *Launch at login*.
 

@@ -13,9 +13,27 @@ your Claude Code token usage grows a Pokémon companion, here in the Windows not
 - **Scope:** Claude Code only. The other usage providers of the macOS app are not ported.
   The port status per upstream change is in [`windows/PARITY.md`](../windows/PARITY.md).
 
-## Build
+## Requirements
 
-This fork publishes no releases. Build the exe from source (needs the .NET 10 SDK):
+| What | Details |
+|---|---|
+| OS | Tested on Windows 11 x64. Windows 10 x64 is untested. |
+| .NET | No install needed. The runtime is inside the exe. |
+| Install | None. Put the single `PokeTokenBar.exe` in any folder and run it. |
+| Claude Code | Usage shows only for Claude Code used on that PC. The app reads its logs, such as `%USERPROFILE%\.claude\projects`. |
+| Data | Save, settings and caches live in `%LOCALAPPDATA%\PokeTokenBar`, per PC. To move them, use the save export / import in Settings. |
+
+At the first start the app unpacks its WPF native libraries to `%TEMP%\.net\PokeTokenBar`. *Launch at
+login* and the `poketokenbar://` protocol record the exe path, so pick the folder for the exe before
+you run it.
+
+## Install
+
+Download `PokeTokenBar.exe` from [Releases](https://github.com/Bluewind8791/PokeTokenBar-Win/releases)
+and run it. The app does not announce updates (it checks the original repository's releases only),
+so get new versions yourself.
+
+To build from source (needs the .NET 10 SDK):
 
 ```powershell
 pwsh windows/scripts/publish.ps1
