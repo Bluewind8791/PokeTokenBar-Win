@@ -7,8 +7,9 @@ namespace PokeTokenBar.Core;
 /// Port of <c>UpdateChecker</c>: checks the latest GitHub release and offers it when newer. macOS
 /// upgrades a Homebrew cask in place; Windows has no such channel, so applying an update is the app
 /// opening <see cref="UpdateTarget"/>'s release page (no Homebrew script is ported).
-/// Releases are shared with the macOS app, so a release counts for Windows only when it carries a
-/// Windows asset (<see cref="IsWindowsAsset"/>); a macOS-only release is not offered.
+/// Windows difference: the Windows builds are released on the fork <see cref="Repo"/>, tagged
+/// <c>v&lt;macOS version&gt;-win.&lt;n&gt;</c>; the original repository never carries a Windows asset, so checking it
+/// could never offer an update. A release still counts only with a Windows asset (<see cref="IsWindowsAsset"/>).
 /// Call it from one thread (the UI thread), like the macOS <c>@MainActor</c> class.
 /// </summary>
 public sealed class UpdateChecker
@@ -24,7 +25,9 @@ public sealed class UpdateChecker
     public sealed record LatestRelease(string Tag, string Url);
 
     public const string SkippedVersionKey = "skippedUpdateVersion";
-    public const string Repo = "chattymin/PokeTokenBar";
+    public const string Repo = "Bluewind8791/PokeTokenBar-Win";
+    /// <summary>Marks a Windows build of a macOS version: <c>2.5.7-win.2</c> is the second Windows build of 2.5.7.</summary>
+    public const string WindowsBuildMarker = "-win.";
 
     /// <summary>Raised after <see cref="Available"/> / <see cref="Skipped"/> change (SwiftUI observation stand-in).</summary>
     public event Action? Changed;
@@ -85,17 +88,30 @@ public sealed class UpdateChecker
         Uri.TryCreate(value, UriKind.Absolute, out var url) && url.Scheme == "https" && url.Host == "github.com";
 
     /// <summary>
-    /// Tag → comparable version, or null when it is not a plain <c>MAJOR.MINOR.PATCH</c> (optionally
-    /// v-prefixed). <see cref="IsNewer"/> reads non-numeric parts as 0, so a prerelease would compare
-    /// equal to its release and garbage as 0.0.0; neither may be applied or count as a successful check.
+    /// Tag ??comparable version, or null when it is not <c>MAJOR.MINOR.PATCH</c> or
+    /// <c>MAJOR.MINOR.PATCH-win.BUILD</c> (optionally v-prefixed). <see cref="IsNewer"/> reads non-numeric parts as 0,
+    /// so a prerelease would compare equal to its release and garbage as 0.0.0; neither may be applied or count as a
+    /// successful check.
     /// </summary>
     public static string? NormalizedReleaseVersion(string tag)
     {
         var version = tag.Trim();
         if (version.StartsWith('v') || version.StartsWith('V')) version = version[1..];
+        string? build = null;
+        var marker = version.IndexOf(WindowsBuildMarker, StringComparison.Ordinal);
+        if (marker >= 0)
+        {
+            build = version[(marker + WindowsBuildMarker.Length)..];
+            version = version[..marker];
+            if (!IsNumber(build)) return null;
+        }
         var parts = version.Split('.');
-        if (parts.Length != 3 || !parts.All(p => p.Length is > 0 and <= 9 && p.All(char.IsAsciiDigit))) return null;
-        return string.Join('.', parts.Select(p => int.Parse(p, System.Globalization.CultureInfo.InvariantCulture)));
+        if (parts.Length != 3 || !parts.All(IsNumber)) return null;
+        var core = string.Join('.', parts.Select(Number));
+        return build == null ? core : core + WindowsBuildMarker + Number(build);
+
+        static bool IsNumber(string p) => p.Length is > 0 and <= 9 && p.All(char.IsAsciiDigit);
+        static int Number(string p) => int.Parse(p, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Live GitHub latest-release lookup. Null on any transport or payload failure.</summary>
@@ -143,15 +159,16 @@ public sealed class UpdateChecker
     }
 
     /// <summary>
-    /// Assumed Windows asset naming (no Windows release exists yet): a name containing <c>windows</c> or
-    /// <c>-win-</c> (e.g. <c>PokeTokenBar-Windows-x64.zip</c>, <c>PokeTokenBar-2.6.0-win-x64.msi</c>), as a
-    /// zip, msi, msix or exe. The macOS asset is <c>PokeTokenBar.zip</c>.
+    /// A Windows asset: the fork's <c>PokeTokenBar.exe</c>, or a name containing <c>windows</c> or <c>-win-</c>
+    /// (e.g. <c>PokeTokenBar-Windows-x64.zip</c>, <c>PokeTokenBar-2.6.0-win-x64.msi</c>) as a zip, msi, msix or exe.
+    /// The macOS asset is <c>PokeTokenBar.zip</c>.
     /// </summary>
     public static bool IsWindowsAsset(string name)
     {
         var lower = name.ToLowerInvariant();
-        return (lower.Contains("windows") || lower.Contains("-win-"))
-            && (lower.EndsWith(".zip") || lower.EndsWith(".msi") || lower.EndsWith(".msix") || lower.EndsWith(".exe"));
+        return lower == "poketokenbar.exe"
+            || ((lower.Contains("windows") || lower.Contains("-win-"))
+                && (lower.EndsWith(".zip") || lower.EndsWith(".msi") || lower.EndsWith(".msix") || lower.EndsWith(".exe")));
     }
 
     /// <summary>Applies one fetched release. <paramref name="tag"/> may be a tag (<c>v2.5.4</c>) or a bare version.</summary>
@@ -199,11 +216,21 @@ public sealed class UpdateChecker
         }
     }
 
-    /// <summary>Numeric semver comparison ("2.0.10" > "2.0.9"); missing or non-numeric parts read as 0.</summary>
+    /// <summary>Numeric semver comparison ("2.0.10" > "2.0.9"), then the Windows build ("2.5.7-win.2" >
+    /// "2.5.7-win.1" > "2.5.7"); missing or non-numeric parts read as 0.</summary>
     public static bool IsNewer(string a, string b)
     {
-        static int[] Parts(string v) => v.Split('.', StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+        static int[] Parts(string v)
+        {
+            var marker = v.IndexOf(WindowsBuildMarker, StringComparison.Ordinal);
+            var core = marker >= 0 ? v[..marker] : v;
+            var build = marker >= 0 && int.TryParse(v[(marker + WindowsBuildMarker.Length)..], out var b) ? b : 0;
+            var parts = core.Split('.', StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => int.TryParse(p, out var n) ? n : 0).ToList();
+            while (parts.Count < 3) parts.Add(0);
+            parts.Add(build);
+            return parts.ToArray();
+        }
         var pa = Parts(a);
         var pb = Parts(b);
         for (var i = 0; i < Math.Max(pa.Length, pb.Length); i++)
@@ -215,6 +242,16 @@ public sealed class UpdateChecker
         return false;
     }
 
-    public static string EntryVersion() =>
-        Assembly.GetEntryAssembly()?.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}" : "0";
+    /// <summary>The running build's version. The informational version keeps the Windows build (<c>2.5.7-win.2</c>);
+    /// the assembly version cannot hold it (numbers only), so it is the fallback.</summary>
+    public static string EntryVersion()
+    {
+        var assembly = Assembly.GetEntryAssembly();
+        return VersionFromInformational(assembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion)
+            ?? (assembly?.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}" : "0");
+    }
+
+    /// <summary><c>2.5.7-win.2+&lt;commit&gt;</c> ??<c>2.5.7-win.2</c>; null when it is not a release version.</summary>
+    public static string? VersionFromInformational(string? informational) =>
+        informational == null ? null : NormalizedReleaseVersion(informational.Split('+')[0]);
 }

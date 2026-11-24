@@ -16,8 +16,9 @@
     <RootNamespace>PokeTokenBar.App</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <!-- Shares GitHub releases with the macOS app: keep in step with the release tag (vX.Y.Z). -->
-    <Version>2.5.6</Version>
+    <!-- Released on the fork as v<macOS version>-win.<n>; publish passes -Version with the release's value.
+         UpdateChecker compares the -win.<n> part too, so keep it in the version. -->
+    <Version>2.5.7-win.2</Version>
     <Product>PokeTokenBar</Product>
   </PropertyGroup>
 

@@ -34,7 +34,8 @@ needed.
   optional Pokémon growth %) is in the tray tooltip. The popover, floating pet and notifications work as on macOS.
 - **No Keychain.** Official limits use Claude Code's credentials file; there are no permission
   prompts, so the Keychain settings are gone.
-- **Updates** open the release page instead of installing in place.
+- **Updates** open the release page instead of installing in place. The app checks the fork's releases
+  (`Bluewind8791/PokeTokenBar-Win`, tagged `v<macOS version>-win.<n>`), not the macOS ones.
 - Icons are Segoe Fluent glyphs instead of SF Symbols. WPF draws emoji in monochrome, so a few
   item icons use Microsoft Fluent Emoji images, downloaded once and cached.
 

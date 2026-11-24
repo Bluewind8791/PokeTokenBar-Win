@@ -242,3 +242,11 @@ Deviations:
 | #460 Choose which providers to track | Windows tracks Claude Code only |
 | #434 Codex candy regrant | Codex-only change; the Claude path is unchanged |
 | #474 Register at login through System Settings approval | macOS login-item API; Windows uses the Run key |
+
+## Windows differences
+
+- **Update check:** `UpdateChecker.Repo` is the fork `Bluewind8791/PokeTokenBar-Win`, not `chattymin/PokeTokenBar`. The
+  original repository never carries a Windows asset, so checking it could never offer an update. Windows builds are
+  tagged `v<macOS version>-win.<n>` with the bare `PokeTokenBar.exe` as the asset; `IsNewer` compares the `-win.<n>`
+  build after the version, and `EntryVersion` reads the informational version so the running build keeps it.
+  Applying an update still only opens the release page.

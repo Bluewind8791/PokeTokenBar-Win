@@ -140,7 +140,63 @@ public sealed class UpdateCheckerTests
     [InlineData("3.0.0", "2.9.9", true)]
     [InlineData("2.0.1", "2.0", true)]
     [InlineData("2.0", "2.0.0", false)]
+    // Windows builds of one macOS version, then a new macOS version.
+    [InlineData("2.5.7-win.2", "2.5.7-win.1", true)]
+    [InlineData("2.5.7-win.1", "2.5.7-win.2", false)]
+    [InlineData("2.5.7-win.1", "2.5.7-win.1", false)]
+    [InlineData("2.5.7-win.10", "2.5.7-win.9", true)]
+    [InlineData("2.5.7-win.1", "2.5.7", true)]
+    [InlineData("2.5.7", "2.5.7-win.1", false)]
+    [InlineData("2.5.8-win.1", "2.5.7-win.9", true)]
+    [InlineData("2.5.7-win.9", "2.5.8-win.1", false)]
     public void IsNewer(string a, string b, bool expected) => Assert.Equal(expected, UpdateChecker.IsNewer(a, b));
+
+    [Fact]
+    public void WindowsBuildTagsAreReleaseVersions()
+    {
+        Assert.Equal("2.5.7-win.1", UpdateChecker.NormalizedReleaseVersion("v2.5.7-win.1"));
+        Assert.Equal("2.5.7-win.2", UpdateChecker.NormalizedReleaseVersion(" V2.05.7-win.02\n"));
+        Assert.Null(UpdateChecker.NormalizedReleaseVersion("v2.5.7-win."));
+        Assert.Null(UpdateChecker.NormalizedReleaseVersion("v2.5.7-win.x"));
+        Assert.Null(UpdateChecker.NormalizedReleaseVersion("v2.5-win.1"));
+        Assert.Null(UpdateChecker.NormalizedReleaseVersion("v2.5.7-beta.1"));
+    }
+
+    /// <summary>The build's own version keeps the Windows build, or win.1 and win.2 would read as the same version.</summary>
+    [Fact]
+    public void TheRunningVersionComesFromTheInformationalVersion()
+    {
+        Assert.Equal("2.5.7-win.2", UpdateChecker.VersionFromInformational("2.5.7-win.2+6f93c420e325cfaf484105cca9909dc608cb1b83"));
+        Assert.Equal("2.5.7", UpdateChecker.VersionFromInformational("2.5.7+6f93c42"));
+        Assert.Equal("2.5.7-win.1", UpdateChecker.VersionFromInformational("2.5.7-win.1"));
+        Assert.Null(UpdateChecker.VersionFromInformational("dev"));
+        Assert.Null(UpdateChecker.VersionFromInformational(null));
+    }
+
+    /// <summary>Windows builds are released on the fork with the bare exe; checking the original repository could never
+    /// offer one.</summary>
+    [Fact]
+    public async Task TheForkReleaseWithTheExeIsOffered()
+    {
+        Assert.Equal("Bluewind8791/PokeTokenBar-Win", UpdateChecker.Repo);
+        Assert.True(UpdateChecker.IsWindowsAsset("PokeTokenBar.exe"));
+        Assert.False(UpdateChecker.IsWindowsAsset("PokeTokenBar.zip"));   // the macOS asset
+        const string fork = """{"tag_name":"v2.5.7-win.2","html_url":"https://github.com/Bluewind8791/PokeTokenBar-Win/releases/tag/v2.5.7-win.2","assets":[{"name":"PokeTokenBar.exe"}]}""";
+        var handler = new StubHandler(_ => StubHandler.Json(fork));
+        var release = await UpdateChecker.LiveLatestRelease(UpdateChecker.Repo, handler.Client());
+        Assert.Equal("/repos/Bluewind8791/PokeTokenBar-Win/releases/latest", Assert.Single(handler.Requests).RequestUri!.AbsolutePath);
+
+        var checker = new UpdateChecker("2.5.7-win.1", settings: new AppSettings(null),
+            fetchLatest: () => Task.FromResult(release));
+        await checker.Check();
+        Assert.Equal(new UpdateChecker.UpdateRelease("2.5.7-win.2", "https://github.com/Bluewind8791/PokeTokenBar-Win/releases/tag/v2.5.7-win.2"),
+            checker.Available);
+
+        var current = new UpdateChecker("2.5.7-win.2", settings: new AppSettings(null),
+            fetchLatest: () => Task.FromResult(release));
+        await current.Check();
+        Assert.Equal(UpdateChecker.NoticeKind.Current, current.Notice.Kind);
+    }
 
     [Fact]
     public async Task FailedCheckDoesNotStartTheCooldown()
@@ -322,7 +378,7 @@ public sealed class UpdateCheckerTests
         var handler = new StubHandler(_ => StubHandler.Json(withWindows));
         Assert.Equal("v2.6.0", (await UpdateChecker.LiveLatestRelease(UpdateChecker.Repo, handler.Client()))?.Tag);
         var request = Assert.Single(handler.Requests);
-        Assert.Equal("/repos/chattymin/PokeTokenBar/releases/latest", request.RequestUri!.AbsolutePath);
+        Assert.Equal("/repos/Bluewind8791/PokeTokenBar-Win/releases/latest", request.RequestUri!.AbsolutePath);
         Assert.True(request.Headers.Contains("User-Agent"));
         Assert.Null(await UpdateChecker.LiveLatestRelease(UpdateChecker.Repo));   // gate closed under tests
     }

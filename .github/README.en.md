@@ -30,8 +30,8 @@ you run it.
 ## Install
 
 Download `PokeTokenBar.exe` from [Releases](https://github.com/Bluewind8791/PokeTokenBar-Win/releases)
-and run it. The app does not announce updates (it checks the original repository's releases only),
-so get new versions yourself.
+and run it. The app announces a new release; *Update* opens the release page, and you replace the exe
+with the new one (it does not install itself). `v2.5.7-win.1` lacks this notice, so get the release after it yourself.
 
 To build from source (needs the .NET 10 SDK):
 
