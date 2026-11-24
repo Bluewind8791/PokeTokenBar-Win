@@ -107,6 +107,11 @@ Commit locally in English, Conventional Commits, scope `windows`, for example
 `feat(windows): port upstream changes up to <sha>`. List the ported upstream PRs in the body.
 No `Co-Authored-By` trailer. The merge commit from step 3 stays as is.
 
+Stage files by name and check `git diff --cached --stat` before committing. The upstream `.gitignore` hides
+`.claude/skills/*`, and the fork's skill and `.github/README*.md` files need `git add -f`. Never pass `-f` with a
+directory: `git add -f windows` also adds `bin/`, `obj/` and `artifacts/`, and GitHub rejects the 166 MB exe
+(it happened on 2026-11-24).
+
 Push only when the user asks, and only to `fork` (`git push fork main`).
 
 ## Report
