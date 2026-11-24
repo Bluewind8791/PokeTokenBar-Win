@@ -53,7 +53,7 @@ git merge --no-edit origin/main
 ```
 
 Conflicts are unexpected, because the fork changes only `windows/`, `docs/reference/defect-log.md`,
-`.github/README.md` and `.claude/skills/sync-upstream/`. On a conflict, stop, list the conflicted files, and ask. Do not
+`.github/README.md`, `.github/README.en.md` and `.claude/skills/sync-upstream/`. On a conflict, stop, list the conflicted files, and ask. Do not
 resolve a conflict in macOS files by picking the fork's side.
 
 ## 4. Port
